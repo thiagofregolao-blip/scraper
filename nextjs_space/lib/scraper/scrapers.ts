@@ -25,7 +25,8 @@ export class UniversalScraper {
         '--no-first-run',
         '--no-zygote',
         '--disable-gpu'
-      ]
+      ],
+      executablePath: puppeteer.executablePath()
     });
     this.page = await this.browser.newPage();
     
