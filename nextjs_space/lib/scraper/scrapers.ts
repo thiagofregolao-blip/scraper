@@ -17,39 +17,43 @@ export class UniversalScraper {
   private page: Page | null = null;
 
   async initialize(): Promise<void> {
-    const commonArgs = [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu'
-    ];
-
+    console.log('[Scraper] Initializing browser...');
+    
+    // Priority: Use @sparticuz/chromium first (works in most production environments)
     try {
-      // Try method 1: Use regular puppeteer (works in development and some production environments)
-      this.browser = await puppeteer.launch({
-        headless: true,
-        args: commonArgs
-      });
-      console.log('Using Puppeteer with bundled Chromium');
-    } catch (error1) {
-      console.log('Puppeteer failed, trying @sparticuz/chromium...', error1);
+      console.log('[Scraper] Method 1: Trying @sparticuz/chromium...');
+      const executablePath = await chromium.executablePath();
+      console.log('[Scraper] Executable path:', executablePath);
       
+      this.browser = await puppeteerCore.launch({
+        headless: true,
+        args: chromium.args,
+        executablePath,
+        timeout: 30000 // 30 seconds timeout
+      });
+      console.log('[Scraper] ✓ Successfully launched with @sparticuz/chromium');
+    } catch (error1) {
+      console.error('[Scraper] @sparticuz/chromium failed:', error1);
+      
+      // Fallback: Try regular puppeteer
       try {
-        // Try method 2: Use @sparticuz/chromium (for serverless environments)
-        const executablePath = await chromium.executablePath();
-        this.browser = await puppeteerCore.launch({
+        console.log('[Scraper] Method 2: Trying regular Puppeteer...');
+        this.browser = await puppeteer.launch({
           headless: true,
-          args: [...chromium.args, ...commonArgs],
-          executablePath
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+          ],
+          timeout: 30000
         });
-        console.log('Using @sparticuz/chromium');
+        console.log('[Scraper] ✓ Successfully launched with Puppeteer');
       } catch (error2) {
-        console.log('@sparticuz/chromium failed, trying system Chrome...', error2);
+        console.error('[Scraper] Puppeteer failed:', error2);
         
-        // Try method 3: Use system Chrome/Chromium
+        // Last resort: Try system Chrome
+        console.log('[Scraper] Method 3: Trying system Chrome...');
         const systemPaths = [
           '/usr/bin/google-chrome',
           '/usr/bin/chromium',
@@ -60,29 +64,42 @@ export class UniversalScraper {
         let launched = false;
         for (const path of systemPaths) {
           try {
+            console.log(`[Scraper] Trying ${path}...`);
             this.browser = await puppeteerCore.launch({
               headless: true,
-              args: commonArgs,
-              executablePath: path
+              args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu'
+              ],
+              executablePath: path,
+              timeout: 30000
             });
-            console.log(`Using system Chrome at ${path}`);
+            console.log(`[Scraper] ✓ Successfully launched with ${path}`);
             launched = true;
             break;
           } catch (e) {
+            console.log(`[Scraper] Failed with ${path}`);
             continue;
           }
         }
         
         if (!launched) {
-          throw new Error('Failed to launch browser with any method');
+          const errorMsg = 'Failed to launch browser with any method. Errors:\n' +
+            `1. @sparticuz/chromium: ${error1}\n` +
+            `2. Puppeteer: ${error2}`;
+          console.error('[Scraper]', errorMsg);
+          throw new Error(errorMsg);
         }
       }
     }
     
     if (!this.browser) {
-      throw new Error('Browser initialization failed');
+      throw new Error('Browser initialization failed - browser is null');
     }
     
+    console.log('[Scraper] Creating new page...');
     this.page = await this.browser.newPage();
     
     await this.page.setUserAgent(
@@ -90,6 +107,7 @@ export class UniversalScraper {
     );
 
     await this.page.setViewport({ width: 1920, height: 1080 });
+    console.log('[Scraper] ✓ Browser initialized successfully');
   }
 
   async getProductLinks(categoryUrl: string): Promise<string[]> {
