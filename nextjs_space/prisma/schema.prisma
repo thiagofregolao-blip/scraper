@@ -1,0 +1,46 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/product_scraper/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model ScrapeJob {
+  id                String   @id @default(uuid())
+  url               String
+  status            String   @default("pending") // pending, processing, completed, failed
+  progress          Int      @default(0)
+  totalProducts     Int      @default(0)
+  processedProducts Int      @default(0)
+  currentProduct    String?
+  zipPath           String?
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+  completedAt       DateTime?
+  products          Product[]
+
+  @@map("scrape_jobs")
+}
+
+model Product {
+  id           String    @id @default(uuid())
+  jobId        String
+  name         String
+  description  String?
+  price        String?
+  originalUrl  String
+  imagePaths   String[]  @default([])
+  folderName   String
+  status       String    @default("pending") // pending, processing, completed, failed
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+  
+  job          ScrapeJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("products")
+}
