@@ -40,22 +40,32 @@ export default function ProductScraperApp() {
     const pollInterval = setInterval(async () => {
       try {
         const response = await fetch(`/api/jobs/${currentJob.id}`);
-        if (response?.ok) {
-          const updatedJob = await response.json();
-          setCurrentJob(updatedJob);
-          
-          if (updatedJob?.status === 'completed') {
-            toast({
-              title: "Extração Concluída!",
-              description: `${updatedJob?.processedProducts} produtos extraídos com sucesso.`,
-            });
-          } else if (updatedJob?.status === 'failed') {
-            toast({
-              title: "Erro na Extração",
-              description: updatedJob?.errorMessage || "Erro desconhecido",
-              variant: "destructive",
-            });
-          }
+        
+        if (!response.ok) {
+          console.error("Job status fetch failed:", response.status, response.statusText);
+          return;
+        }
+        
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          console.error("Response is not JSON:", await response.text());
+          return;
+        }
+        
+        const updatedJob = await response.json();
+        setCurrentJob(updatedJob);
+        
+        if (updatedJob?.status === 'completed') {
+          toast({
+            title: "Extração Concluída!",
+            description: `${updatedJob?.processedProducts} produtos extraídos com sucesso.`,
+          });
+        } else if (updatedJob?.status === 'failed') {
+          toast({
+            title: "Erro na Extração",
+            description: updatedJob?.errorMessage || "Erro desconhecido",
+            variant: "destructive",
+          });
         }
       } catch (err) {
         console.error("Error polling job status:", err);
@@ -92,6 +102,20 @@ export default function ProductScraperApp() {
       });
 
       console.log('[Frontend] Response status:', response.status);
+      
+      if (!response.ok) {
+        const text = await response.text();
+        console.error('[Frontend] Response error:', text);
+        throw new Error(`Erro na requisição: ${response.status} ${response.statusText}`);
+      }
+      
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        console.error('[Frontend] Response is not JSON:', text);
+        throw new Error("Resposta inválida do servidor");
+      }
+      
       const result: StartScrapeResponse = await response.json();
       console.log('[Frontend] Response data:', result);
 
@@ -108,12 +132,16 @@ export default function ProductScraperApp() {
       // Fetch initial job status
       const jobResponse = await fetch(`/api/jobs/${result.jobId}`);
       if (jobResponse?.ok) {
-        const job = await jobResponse.json();
-        setCurrentJob(job);
+        const contentType = jobResponse.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const job = await jobResponse.json();
+          setCurrentJob(job);
+        }
       }
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Erro desconhecido";
+      console.error('[Frontend] Error:', errorMessage);
       setError(errorMessage);
       toast({
         title: "Erro",

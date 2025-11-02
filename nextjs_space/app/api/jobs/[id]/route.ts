@@ -8,9 +8,11 @@ const prisma = new PrismaClient();
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params;
+    
     const job = await prisma.scrapeJob.findUnique({
       where: { id: params.id },
       include: {
