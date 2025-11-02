@@ -43,80 +43,174 @@ export class UniversalScraper {
       console.log(`[Scraper] Navigating to category: ${categoryUrl}`);
       
       await this.page.goto(categoryUrl, { 
-        waitUntil: 'networkidle0', 
+        waitUntil: 'domcontentloaded', 
         timeout: 60000 
       });
 
-      console.log('[Scraper] Page loaded, waiting for content...');
-      // Wait for content to load
+      console.log('[Scraper] Page loaded, waiting for dynamic content...');
+      // Wait for dynamic content and scroll to trigger lazy loading
       await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Scroll to load lazy images
+      await this.page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight / 2);
+      });
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await this.page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight);
+      });
+      await new Promise(resolve => setTimeout(resolve, 2000));
 
       const domain = extractDomain(categoryUrl);
       
-      // Generic selectors for product links
-      const linkSelectors = [
-        'a[href*="/producto/"]', // Spanish sites like shoppingchina.com.py
-        'a[href*="/produto/"]',  // Portuguese sites
-        'a[href*="/product/"]',
-        'a[href*="/item/"]',
-        'a[href*="/p/"]',
-        '.product-item a',
-        '.product-link',
-        '.item-link',
-        '[data-testid*="product"] a',
-        '.product-card a',
-        '.listing-item a'
-      ];
-
-      let productLinks: string[] = [];
-
-      for (const selector of linkSelectors) {
-        try {
-          console.log(`[Scraper] Trying selector: ${selector}`);
-          const links = await this.page.$$eval(selector, (elements) =>
-            elements.map(el => (el as HTMLAnchorElement).href)
-          );
+      console.log('[Scraper] Extracting product links from page...');
+      
+      // Use more intelligent approach - find links that look like products
+      const productLinks = await this.page.evaluate((baseDomain: string) => {
+        const links = new Set<string>();
+        
+        // Function to check if an element or its children contain an image
+        const hasImage = (element: Element): boolean => {
+          return element.querySelector('img') !== null;
+        };
+        
+        // Function to check if an element or its children contain price indicators
+        const hasPrice = (element: Element): boolean => {
+          const text = element.textContent || '';
+          const pricePatterns = [
+            /\$\s*\d+/,           // $100
+            /\d+\s*Gs/i,          // Guaraní (Paraguay)
+            /R\$\s*\d+/,          // Real (Brazil)
+            /€\s*\d+/,            // Euro
+            /£\s*\d+/,            // Pound
+            /precio/i,            // Spanish
+            /preço/i,             // Portuguese
+            /price/i              // English
+          ];
+          return pricePatterns.some(pattern => pattern.test(text));
+        };
+        
+        // Get all links on the page
+        const allLinks = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+        
+        console.log(`Found ${allLinks.length} total links`);
+        
+        for (const link of allLinks) {
+          const href = link.href;
           
-          if (links.length > 0) {
-            console.log(`[Scraper] Found ${links.length} links with selector: ${selector}`);
-            productLinks = links;
-            break;
+          // Skip external links, anchors, and navigation
+          if (!href || 
+              href === window.location.href ||
+              href.includes('#') ||
+              href.includes('javascript:') ||
+              href.includes('mailto:') ||
+              href.includes('tel:')) {
+            continue;
           }
-        } catch (error) {
-          console.log(`[Scraper] Selector ${selector} failed: ${error}`);
-          // Continue to next selector
-        }
-      }
-
-      // Fallback: get all links and filter by common patterns
-      if (productLinks.length === 0) {
-        console.log('[Scraper] No links found with specific selectors, trying fallback...');
-        const allLinks = await this.page.$$eval('a[href]', (elements) =>
-          elements.map(el => (el as HTMLAnchorElement).href)
-        );
-
-        console.log(`[Scraper] Found ${allLinks.length} total links on page`);
-
-        productLinks = allLinks.filter(link => {
-          if (!isValidUrl(link)) return false;
-          const linkDomain = extractDomain(link);
-          if (linkDomain !== domain) return false;
           
-          const path = link.toLowerCase();
-          return path.includes('/producto/') || // Spanish
-                 path.includes('/produto/') ||  // Portuguese
-                 path.includes('/product/') ||  // English
-                 path.includes('/item/') ||
-                 path.includes('/p/') ||
-                 path.match(/\/[^\/]*\d+[^\/]*$/); // URLs ending with numbers
+          // Check if same domain
+          try {
+            const linkUrl = new URL(href);
+            const pageUrl = new URL(window.location.href);
+            if (linkUrl.hostname !== pageUrl.hostname) {
+              continue;
+            }
+          } catch (e) {
+            continue;
+          }
+          
+          // Skip common non-product pages
+          const lowerHref = href.toLowerCase();
+          const skipPatterns = [
+            '/categoria', '/category', '/cart', '/carrito', '/checkout',
+            '/login', '/register', '/account', '/conta', '/mi-cuenta',
+            '/about', '/sobre', '/contact', '/contato', '/contacto',
+            '/terms', '/privacy', '/politica', '/ayuda', '/help',
+            '/search', '/busca', '/buscar'
+          ];
+          
+          if (skipPatterns.some(pattern => lowerHref.includes(pattern))) {
+            continue;
+          }
+          
+          // Check if the link or its parent container has product-like characteristics
+          const linkParent = link.closest('div, li, article, section');
+          const containerToCheck = linkParent || link;
+          
+          // Product links usually have:
+          // 1. An image
+          // 2. Text content (product name)
+          // 3. Often a price
+          const hasImg = hasImage(containerToCheck);
+          const hasText = (link.textContent?.trim().length || 0) > 5;
+          const mayHavePrice = hasPrice(containerToCheck);
+          
+          // Look for URL patterns that suggest it's a product
+          const productPatterns = [
+            '/producto/', '/produtos/', '/product/', '/item/', '/p/',
+            '/articulo/', '/artigo/'
+          ];
+          const hasProductPattern = productPatterns.some(pattern => lowerHref.includes(pattern));
+          
+          // Look for numeric IDs in URL
+          const hasNumericId = /\/\d+/.test(href) || /[-_]\d+[^\/]*$/.test(href.split('?')[0]);
+          
+          // Include link if it matches product criteria
+          if (hasProductPattern || 
+              (hasImg && hasText && hasNumericId) ||
+              (hasImg && mayHavePrice)) {
+            links.add(href.split('?')[0]); // Remove query parameters
+          }
+        }
+        
+        console.log(`Extracted ${links.size} potential product links`);
+        return Array.from(links);
+      }, domain);
+
+      if (productLinks.length === 0) {
+        console.log('[Scraper] No product links found with intelligent detection');
+        console.log('[Scraper] Trying fallback: all links with images...');
+        
+        // Last resort fallback
+        const fallbackLinks = await this.page.evaluate(() => {
+          const links = new Set<string>();
+          const allLinks = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+          
+          for (const link of allLinks) {
+            const href = link.href;
+            const img = link.querySelector('img');
+            
+            if (img && href && !href.includes('#') && !href.includes('javascript:')) {
+              try {
+                const linkUrl = new URL(href);
+                const pageUrl = new URL(window.location.href);
+                if (linkUrl.hostname === pageUrl.hostname) {
+                  links.add(href.split('?')[0]);
+                }
+              } catch (e) {
+                // Skip invalid URLs
+              }
+            }
+          }
+          
+          return Array.from(links);
         });
         
-        console.log(`[Scraper] After filtering: ${productLinks.length} product links`);
+        console.log(`[Scraper] Fallback found ${fallbackLinks.length} links with images`);
+        productLinks.push(...fallbackLinks);
       }
 
       // Remove duplicates and limit results
       const uniqueLinks = [...new Set(productLinks)].slice(0, 100);
-      console.log(`[Scraper] Final result: ${uniqueLinks.length} unique product links on ${categoryUrl}`);
+      console.log(`[Scraper] Final result: ${uniqueLinks.length} unique product links`);
+      
+      // Log first few links for debugging
+      if (uniqueLinks.length > 0) {
+        console.log('[Scraper] Sample links:');
+        uniqueLinks.slice(0, 5).forEach((link, i) => {
+          console.log(`  ${i + 1}. ${link}`);
+        });
+      }
       
       return uniqueLinks;
     } catch (error) {
