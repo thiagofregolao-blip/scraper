@@ -41,7 +41,10 @@ export async function GET(
     }
 
     const fileBuffer = fs.readFileSync(job.zipPath);
-    const fileName = `produtos_${job.id.substring(0, 8)}.zip`;
+    
+    // Use category name if available, otherwise use job ID
+    const categoryName = job.categoryName || 'produtos';
+    const fileName = `${categoryName}.zip`;
 
     return new NextResponse(fileBuffer, {
       headers: {

@@ -17,6 +17,37 @@ export class ProductProcessor {
     this.scraper = new UniversalScraper();
   }
 
+  // Extract category name from URL
+  private extractCategoryName(url: string): string {
+    try {
+      const urlObj = new URL(url);
+      const pathname = urlObj.pathname;
+      
+      // Try to extract category from URL patterns
+      // Examples: /categoria/-celulares, /category/electronics, etc.
+      const categoryMatch = pathname.match(/\/categor[iy]a?\/[-_]?([^\/]+)/i);
+      if (categoryMatch && categoryMatch[1]) {
+        // Remove special characters and clean up
+        return categoryMatch[1]
+          .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
+          .replace(/[^a-z0-9_-]/gi, '_') // Replace special chars with underscore
+          .toLowerCase();
+      }
+      
+      // Fallback: use last segment of path
+      const segments = pathname.split('/').filter(s => s.length > 0);
+      if (segments.length > 0) {
+        return segments[segments.length - 1]
+          .replace(/[^a-z0-9_-]/gi, '_')
+          .toLowerCase();
+      }
+      
+      return 'produtos';
+    } catch (error) {
+      return 'produtos';
+    }
+  }
+
   // Check image size before downloading
   private async getImageSize(url: string): Promise<number> {
     return new Promise((resolve) => {
@@ -105,11 +136,15 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         throw new Error('Job not found');
       }
 
-      // Update job status to processing
+      // Extract category name from URL
+      const categoryName = this.extractCategoryName(job.url);
+
+      // Update job status to processing and save category name
       await this.prisma.scrapeJob.update({
         where: { id: jobId },
         data: { 
           status: 'processing',
+          categoryName: categoryName,
           currentProduct: 'Inicializando scraper...'
         }
       });

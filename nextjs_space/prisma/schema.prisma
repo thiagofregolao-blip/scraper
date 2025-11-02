@@ -12,6 +12,7 @@ datasource db {
 model ScrapeJob {
   id                String   @id @default(uuid())
   url               String
+  categoryName      String?
   status            String   @default("pending") // pending, processing, completed, failed
   progress          Int      @default(0)
   totalProducts     Int      @default(0)
