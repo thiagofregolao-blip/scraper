@@ -39,170 +39,322 @@ export class UniversalScraper {
   async getProductLinks(categoryUrl: string): Promise<string[]> {
     if (!this.page) throw new Error('Scraper not initialized');
 
+    const allProductLinks: string[] = [];
+    const maxPages = 20; // Maximum number of pages to scrape
+    let currentPage = 1;
+
     try {
-      console.log(`[Scraper] Navigating to category: ${categoryUrl}`);
+      console.log(`[Scraper] Starting pagination from: ${categoryUrl}`);
       
-      await this.page.goto(categoryUrl, { 
-        waitUntil: 'domcontentloaded', 
-        timeout: 60000 
-      });
-
-      console.log('[Scraper] Page loaded, waiting for dynamic content...');
-      // Wait for dynamic content and scroll to trigger lazy loading
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Scroll to load lazy images
-      await this.page.evaluate(() => {
-        window.scrollTo(0, document.body.scrollHeight / 2);
-      });
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await this.page.evaluate(() => {
-        window.scrollTo(0, document.body.scrollHeight);
-      });
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      const domain = extractDomain(categoryUrl);
-      
-      console.log('[Scraper] Extracting product links from page...');
-      
-      // Use more intelligent approach - find links that look like products
-      const productLinks = await this.page.evaluate((baseDomain: string) => {
-        const links = new Set<string>();
+      // Navigate through all pages
+      while (currentPage <= maxPages) {
+        console.log(`\n[Scraper] === Processing page ${currentPage} ===`);
         
-        // Function to check if an element or its children contain an image
-        const hasImage = (element: Element): boolean => {
-          return element.querySelector('img') !== null;
-        };
-        
-        // Function to check if an element or its children contain price indicators
-        const hasPrice = (element: Element): boolean => {
-          const text = element.textContent || '';
-          const pricePatterns = [
-            /\$\s*\d+/,           // $100
-            /\d+\s*Gs/i,          // Guaraní (Paraguay)
-            /R\$\s*\d+/,          // Real (Brazil)
-            /€\s*\d+/,            // Euro
-            /£\s*\d+/,            // Pound
-            /precio/i,            // Spanish
-            /preço/i,             // Portuguese
-            /price/i              // English
-          ];
-          return pricePatterns.some(pattern => pattern.test(text));
-        };
-        
-        // Get all links on the page
-        const allLinks = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
-        
-        console.log(`Found ${allLinks.length} total links`);
-        
-        for (const link of allLinks) {
-          const href = link.href;
-          
-          // Skip external links, anchors, and navigation
-          if (!href || 
-              href === window.location.href ||
-              href.includes('#') ||
-              href.includes('javascript:') ||
-              href.includes('mailto:') ||
-              href.includes('tel:')) {
-            continue;
-          }
-          
-          // Check if same domain
-          try {
-            const linkUrl = new URL(href);
-            const pageUrl = new URL(window.location.href);
-            if (linkUrl.hostname !== pageUrl.hostname) {
-              continue;
-            }
-          } catch (e) {
-            continue;
-          }
-          
-          // Skip common non-product pages
-          const lowerHref = href.toLowerCase();
-          const skipPatterns = [
-            '/categoria', '/category', '/cart', '/carrito', '/checkout',
-            '/login', '/register', '/account', '/conta', '/mi-cuenta',
-            '/about', '/sobre', '/contact', '/contato', '/contacto',
-            '/terms', '/privacy', '/politica', '/ayuda', '/help',
-            '/search', '/busca', '/buscar'
-          ];
-          
-          if (skipPatterns.some(pattern => lowerHref.includes(pattern))) {
-            continue;
-          }
-          
-          // Check if the link or its parent container has product-like characteristics
-          const linkParent = link.closest('div, li, article, section');
-          const containerToCheck = linkParent || link;
-          
-          // Product links usually have:
-          // 1. An image
-          // 2. Text content (product name)
-          // 3. Often a price
-          const hasImg = hasImage(containerToCheck);
-          const hasText = (link.textContent?.trim().length || 0) > 5;
-          const mayHavePrice = hasPrice(containerToCheck);
-          
-          // Look for URL patterns that suggest it's a product
-          const productPatterns = [
-            '/producto/', '/produtos/', '/product/', '/item/', '/p/',
-            '/articulo/', '/artigo/'
-          ];
-          const hasProductPattern = productPatterns.some(pattern => lowerHref.includes(pattern));
-          
-          // Look for numeric IDs in URL
-          const hasNumericId = /\/\d+/.test(href) || /[-_]\d+[^\/]*$/.test(href.split('?')[0]);
-          
-          // Include link if it matches product criteria
-          if (hasProductPattern || 
-              (hasImg && hasText && hasNumericId) ||
-              (hasImg && mayHavePrice)) {
-            links.add(href.split('?')[0]); // Remove query parameters
-          }
+        // Navigate to the page (first iteration uses original URL)
+        if (currentPage === 1) {
+          await this.page.goto(categoryUrl, { 
+            waitUntil: 'domcontentloaded', 
+            timeout: 60000 
+          });
         }
-        
-        console.log(`Extracted ${links.size} potential product links`);
-        return Array.from(links);
-      }, domain);
 
-      if (productLinks.length === 0) {
-        console.log('[Scraper] No product links found with intelligent detection');
-        console.log('[Scraper] Trying fallback: all links with images...');
+        console.log('[Scraper] Page loaded, waiting for dynamic content...');
+        // Wait for dynamic content and scroll to trigger lazy loading
+        await new Promise(resolve => setTimeout(resolve, 3000));
         
-        // Last resort fallback
-        const fallbackLinks = await this.page.evaluate(() => {
+        // Scroll to load lazy images
+        await this.page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight / 2);
+        });
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await this.page.evaluate(() => {
+          window.scrollTo(0, document.body.scrollHeight);
+        });
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const domain = extractDomain(categoryUrl);
+        
+        console.log(`[Scraper] Extracting product links from page ${currentPage}...`);
+        
+        // Use more intelligent approach - find links that look like products
+        const pageProductLinks = await this.page.evaluate((baseDomain: string) => {
           const links = new Set<string>();
+          
+          // Function to check if an element or its children contain an image
+          const hasImage = (element: Element): boolean => {
+            return element.querySelector('img') !== null;
+          };
+          
+          // Function to check if an element or its children contain price indicators
+          const hasPrice = (element: Element): boolean => {
+            const text = element.textContent || '';
+            const pricePatterns = [
+              /\$\s*\d+/,           // $100
+              /\d+\s*Gs/i,          // Guaraní (Paraguay)
+              /R\$\s*\d+/,          // Real (Brazil)
+              /€\s*\d+/,            // Euro
+              /£\s*\d+/,            // Pound
+              /precio/i,            // Spanish
+              /preço/i,             // Portuguese
+              /price/i              // English
+            ];
+            return pricePatterns.some(pattern => pattern.test(text));
+          };
+          
+          // Get all links on the page
           const allLinks = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+          
+          console.log(`Found ${allLinks.length} total links`);
           
           for (const link of allLinks) {
             const href = link.href;
-            const img = link.querySelector('img');
             
-            if (img && href && !href.includes('#') && !href.includes('javascript:')) {
-              try {
-                const linkUrl = new URL(href);
-                const pageUrl = new URL(window.location.href);
-                if (linkUrl.hostname === pageUrl.hostname) {
-                  links.add(href.split('?')[0]);
-                }
-              } catch (e) {
-                // Skip invalid URLs
+            // Skip external links, anchors, and navigation
+            if (!href || 
+                href === window.location.href ||
+                href.includes('#') ||
+                href.includes('javascript:') ||
+                href.includes('mailto:') ||
+                href.includes('tel:')) {
+              continue;
+            }
+            
+            // Check if same domain
+            try {
+              const linkUrl = new URL(href);
+              const pageUrl = new URL(window.location.href);
+              if (linkUrl.hostname !== pageUrl.hostname) {
+                continue;
               }
+            } catch (e) {
+              continue;
+            }
+            
+            // Skip common non-product pages
+            const lowerHref = href.toLowerCase();
+            const skipPatterns = [
+              '/categoria', '/category', '/cart', '/carrito', '/checkout',
+              '/login', '/register', '/account', '/conta', '/mi-cuenta',
+              '/about', '/sobre', '/contact', '/contato', '/contacto',
+              '/terms', '/privacy', '/politica', '/ayuda', '/help',
+              '/search', '/busca', '/buscar'
+            ];
+            
+            if (skipPatterns.some(pattern => lowerHref.includes(pattern))) {
+              continue;
+            }
+            
+            // Check if the link or its parent container has product-like characteristics
+            const linkParent = link.closest('div, li, article, section');
+            const containerToCheck = linkParent || link;
+            
+            // Product links usually have:
+            // 1. An image
+            // 2. Text content (product name)
+            // 3. Often a price
+            const hasImg = hasImage(containerToCheck);
+            const hasText = (link.textContent?.trim().length || 0) > 5;
+            const mayHavePrice = hasPrice(containerToCheck);
+            
+            // Look for URL patterns that suggest it's a product
+            const productPatterns = [
+              '/producto/', '/produtos/', '/product/', '/item/', '/p/',
+              '/articulo/', '/artigo/'
+            ];
+            const hasProductPattern = productPatterns.some(pattern => lowerHref.includes(pattern));
+            
+            // Look for numeric IDs in URL
+            const hasNumericId = /\/\d+/.test(href) || /[-_]\d+[^\/]*$/.test(href.split('?')[0]);
+            
+            // Include link if it matches product criteria
+            if (hasProductPattern || 
+                (hasImg && hasText && hasNumericId) ||
+                (hasImg && mayHavePrice)) {
+              links.add(href.split('?')[0]); // Remove query parameters
             }
           }
           
+          console.log(`Extracted ${links.size} potential product links`);
           return Array.from(links);
+        }, domain);
+
+        if (pageProductLinks.length === 0) {
+          console.log('[Scraper] No product links found with intelligent detection');
+          console.log('[Scraper] Trying fallback: all links with images...');
+          
+          // Last resort fallback
+          const fallbackLinks = await this.page.evaluate(() => {
+            const links = new Set<string>();
+            const allLinks = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+            
+            for (const link of allLinks) {
+              const href = link.href;
+              const img = link.querySelector('img');
+              
+              if (img && href && !href.includes('#') && !href.includes('javascript:')) {
+                try {
+                  const linkUrl = new URL(href);
+                  const pageUrl = new URL(window.location.href);
+                  if (linkUrl.hostname === pageUrl.hostname) {
+                    links.add(href.split('?')[0]);
+                  }
+                } catch (e) {
+                  // Skip invalid URLs
+                }
+              }
+            }
+            
+            return Array.from(links);
+          });
+          
+          console.log(`[Scraper] Fallback found ${fallbackLinks.length} links with images`);
+          pageProductLinks.push(...fallbackLinks);
+        }
+
+        // Add products from this page to total list
+        const newProducts = pageProductLinks.filter(link => !allProductLinks.includes(link));
+        allProductLinks.push(...newProducts);
+        console.log(`[Scraper] Found ${newProducts.length} new products on page ${currentPage} (Total: ${allProductLinks.length})`);
+
+        // Try to find and click the "next page" button
+        const hasNextPage = await this.page.evaluate(() => {
+          // Common pagination selectors
+          const nextSelectors = [
+            'a[rel="next"]',
+            'a[aria-label*="next" i]',
+            'a[aria-label*="siguiente" i]',
+            'a[aria-label*="próxima" i]',
+            'button[aria-label*="next" i]',
+            'button[aria-label*="siguiente" i]',
+            'button[aria-label*="próxima" i]',
+            '.pagination a:contains("›")',
+            '.pagination a:contains("→")',
+            '.pagination a:contains("Next")',
+            '.pagination a:contains("Siguiente")',
+            '.pagination a:contains("Próxima")',
+            '.pager a:contains("›")',
+            '.pager a:contains("→")',
+            'a.next',
+            'a.siguiente',
+            'a.proxima',
+            '.next-page',
+            '[class*="next"][class*="page"]',
+            '[class*="pagination"] a[class*="next"]'
+          ];
+
+          // Try to find next button/link
+          for (const selector of nextSelectors) {
+            try {
+              const element = document.querySelector(selector) as HTMLElement;
+              if (element && !element.classList.contains('disabled') && 
+                  !element.hasAttribute('disabled') &&
+                  element.offsetParent !== null) { // Check if visible
+                return true;
+              }
+            } catch (e) {
+              // Selector might not work in all browsers, continue
+            }
+          }
+
+          // Look for pagination links with numeric text
+          const paginationLinks = Array.from(document.querySelectorAll('.pagination a, .pager a, [class*="pagination"] a'));
+          const currentPageNum = parseInt(
+            document.querySelector('.pagination .active, .pagination .current, [class*="pagination"] .active')?.textContent || '1'
+          );
+          
+          for (const link of paginationLinks) {
+            const text = link.textContent?.trim() || '';
+            const pageNum = parseInt(text);
+            if (!isNaN(pageNum) && pageNum === currentPageNum + 1) {
+              return true;
+            }
+          }
+
+          return false;
         });
-        
-        console.log(`[Scraper] Fallback found ${fallbackLinks.length} links with images`);
-        productLinks.push(...fallbackLinks);
+
+        if (!hasNextPage) {
+          console.log(`[Scraper] No more pages found after page ${currentPage}`);
+          break;
+        }
+
+        // Click the next page button
+        console.log('[Scraper] Navigating to next page...');
+        try {
+          const clicked = await this.page.evaluate(() => {
+            const nextSelectors = [
+              'a[rel="next"]',
+              'a[aria-label*="next" i]',
+              'a[aria-label*="siguiente" i]',
+              'a[aria-label*="próxima" i]',
+              'button[aria-label*="next" i]',
+              'button[aria-label*="siguiente" i]',
+              'button[aria-label*="próxima" i]',
+              'a.next',
+              'a.siguiente',
+              'a.proxima',
+              '.next-page',
+              '[class*="next"][class*="page"]',
+              '[class*="pagination"] a[class*="next"]'
+            ];
+
+            for (const selector of nextSelectors) {
+              try {
+                const element = document.querySelector(selector) as HTMLElement;
+                if (element && !element.classList.contains('disabled') && 
+                    !element.hasAttribute('disabled') &&
+                    element.offsetParent !== null) {
+                  element.click();
+                  return true;
+                }
+              } catch (e) {
+                continue;
+              }
+            }
+
+            // Try numeric pagination
+            const paginationLinks = Array.from(document.querySelectorAll('.pagination a, .pager a, [class*="pagination"] a'));
+            const currentPageNum = parseInt(
+              document.querySelector('.pagination .active, .pagination .current, [class*="pagination"] .active')?.textContent || '1'
+            );
+            
+            for (const link of paginationLinks) {
+              const text = link.textContent?.trim() || '';
+              const pageNum = parseInt(text);
+              if (!isNaN(pageNum) && pageNum === currentPageNum + 1) {
+                (link as HTMLElement).click();
+                return true;
+              }
+            }
+
+            return false;
+          });
+
+          if (!clicked) {
+            console.log('[Scraper] Could not click next page button');
+            break;
+          }
+
+          // Wait for navigation
+          await this.page.waitForNavigation({ 
+            waitUntil: 'domcontentloaded',
+            timeout: 30000 
+          }).catch(() => {
+            console.log('[Scraper] Navigation timeout, continuing...');
+          });
+
+          currentPage++;
+        } catch (error) {
+          console.log('[Scraper] Error navigating to next page:', error);
+          break;
+        }
       }
 
       // Remove duplicates and limit results
-      const uniqueLinks = [...new Set(productLinks)].slice(0, 100);
-      console.log(`[Scraper] Final result: ${uniqueLinks.length} unique product links`);
+      const uniqueLinks = [...new Set(allProductLinks)].slice(0, 200);
+      console.log(`\n[Scraper] ✅ Pagination complete!`);
+      console.log(`[Scraper] Total pages processed: ${currentPage}`);
+      console.log(`[Scraper] Total unique products found: ${uniqueLinks.length}`);
       
       // Log first few links for debugging
       if (uniqueLinks.length > 0) {
@@ -215,7 +367,7 @@ export class UniversalScraper {
       return uniqueLinks;
     } catch (error) {
       console.error(`Error getting product links from ${categoryUrl}:`, error);
-      return [];
+      return allProductLinks;
     }
   }
 
