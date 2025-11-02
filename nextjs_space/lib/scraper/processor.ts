@@ -180,10 +180,10 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
           const productDir = path.join(tempDir, folderName);
           ensureDirectoryExists(productDir);
 
-          // Filter and download images (only large, high-quality images)
+          // Filter and download images (only reasonable quality images)
           const imagePaths: string[] = [];
-          const minImageSize = 50 * 1024; // 50KB minimum
-          const maxImages = 5; // Maximum 5 images per product
+          const minImageSize = 10 * 1024; // 10KB minimum (blocks thumbnails/icons but allows normal product images)
+          const maxImages = 8; // Maximum 8 images per product
           let downloadedCount = 0;
 
           for (const imageUrl of productInfo.images) {
@@ -194,8 +194,8 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
             // Check image size before downloading
             const imageSize = await this.getImageSize(imageUrl);
             
-            // Only download if image is large enough (>50KB)
-            if (imageSize >= minImageSize) {
+            // Only download if image is reasonable size (>10KB) or if we don't know the size
+            if (imageSize === 0 || imageSize >= minImageSize) {
               const extension = getFileExtension(imageUrl);
               const imageName = `imagem_${downloadedCount + 1}${extension}`;
               const imagePath = path.join(productDir, imageName);
@@ -204,7 +204,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
               if (success) {
                 imagePaths.push(imageName);
                 downloadedCount++;
-                console.log(`Downloaded image ${downloadedCount}/${maxImages} (${Math.round(imageSize / 1024)}KB) for ${productInfo.name}`);
+                console.log(`Downloaded image ${downloadedCount}/${maxImages} (${imageSize > 0 ? Math.round(imageSize / 1024) + 'KB' : 'unknown size'}) for ${productInfo.name}`);
               }
             } else {
               console.log(`Skipped small image (${Math.round(imageSize / 1024)}KB) for ${productInfo.name}`);
