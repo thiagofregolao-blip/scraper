@@ -1,5 +1,6 @@
 
-import puppeteer, { Browser, Page } from 'puppeteer-core';
+import puppeteerCore, { Browser, Page } from 'puppeteer-core';
+import puppeteer from 'puppeteer';
 import chromium from '@sparticuz/chromium';
 import { extractDomain, isValidUrl } from './utils';
 
@@ -16,14 +17,72 @@ export class UniversalScraper {
   private page: Page | null = null;
 
   async initialize(): Promise<void> {
-    // Use @sparticuz/chromium for production/serverless environments
-    const executablePath = await chromium.executablePath();
+    const commonArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu'
+    ];
+
+    try {
+      // Try method 1: Use regular puppeteer (works in development and some production environments)
+      this.browser = await puppeteer.launch({
+        headless: true,
+        args: commonArgs
+      });
+      console.log('Using Puppeteer with bundled Chromium');
+    } catch (error1) {
+      console.log('Puppeteer failed, trying @sparticuz/chromium...', error1);
+      
+      try {
+        // Try method 2: Use @sparticuz/chromium (for serverless environments)
+        const executablePath = await chromium.executablePath();
+        this.browser = await puppeteerCore.launch({
+          headless: true,
+          args: [...chromium.args, ...commonArgs],
+          executablePath
+        });
+        console.log('Using @sparticuz/chromium');
+      } catch (error2) {
+        console.log('@sparticuz/chromium failed, trying system Chrome...', error2);
+        
+        // Try method 3: Use system Chrome/Chromium
+        const systemPaths = [
+          '/usr/bin/google-chrome',
+          '/usr/bin/chromium',
+          '/usr/bin/chromium-browser',
+          '/snap/bin/chromium'
+        ];
+        
+        let launched = false;
+        for (const path of systemPaths) {
+          try {
+            this.browser = await puppeteerCore.launch({
+              headless: true,
+              args: commonArgs,
+              executablePath: path
+            });
+            console.log(`Using system Chrome at ${path}`);
+            launched = true;
+            break;
+          } catch (e) {
+            continue;
+          }
+        }
+        
+        if (!launched) {
+          throw new Error('Failed to launch browser with any method');
+        }
+      }
+    }
     
-    this.browser = await puppeteer.launch({
-      headless: true,
-      args: chromium.args,
-      executablePath
-    });
+    if (!this.browser) {
+      throw new Error('Browser initialization failed');
+    }
+    
     this.page = await this.browser.newPage();
     
     await this.page.setUserAgent(
