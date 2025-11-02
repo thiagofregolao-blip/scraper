@@ -291,53 +291,85 @@ export class UniversalScraper {
         };
 
         const getImageUrls = (): string[] => {
-          // First try to get high-resolution product images
-          const productImagesSelectors = [
-            'img[src*="producto"]',
-            'img[src*="product"]',
-            'img[src*="item"]',
-            'img[alt*="product"]',
-            'img[alt*="producto"]',
-            '.product-image img',
-            '.product-gallery img',
-            '.item-image img',
-            '.zoom-image',
-            '[data-testid*="image"] img',
-            '.product-photos img',
-            '.gallery img',
-            'img[src*="active_storage"]', // For Rails Active Storage
-            'img[src*="cdn"]'
-          ];
-
-          let images: string[] = [];
+          // Function to check if element is in "related products" section
+          const isInRelatedSection = (element: Element): boolean => {
+            const parent = element.closest('div, section, aside');
+            if (!parent) return false;
+            
+            const parentText = parent.textContent?.toLowerCase() || '';
+            const parentClass = parent.className?.toLowerCase() || '';
+            const parentId = parent.id?.toLowerCase() || '';
+            
+            const relatedKeywords = [
+              'relacionado', 'related', 'similar', 'recomendado',
+              'recommended', 'también', 'also', 'outros', 'other'
+            ];
+            
+            return relatedKeywords.some(keyword => 
+              parentText.includes(keyword) || 
+              parentClass.includes(keyword) ||
+              parentId.includes(keyword)
+            );
+          };
           
-          for (const selector of productImagesSelectors) {
-            const elements = document.querySelectorAll(selector);
-            if (elements.length > 0) {
-              images = Array.from(elements)
-                .map(img => {
-                  const element = img as HTMLImageElement;
-                  return element.src || element.dataset.src || element.dataset.original || '';
-                })
-                .filter(src => src && 
-                  !src.includes('placeholder') && 
-                  !src.includes('no-image') &&
-                  !src.includes('logo.') &&
-                  !src.includes('/logo') &&
-                  !src.includes('icon'));
-              
-              if (images.length > 0) break;
+          // Get main product gallery/images container
+          const mainGallerySelectors = [
+            '.product-gallery',
+            '.product-images',
+            '.item-gallery',
+            '[class*="gallery"]',
+            '[class*="slider"]',
+            '[class*="carousel"]',
+            '.main-image',
+            '.product-image'
+          ];
+          
+          let mainGallery: Element | null = null;
+          for (const selector of mainGallerySelectors) {
+            const element = document.querySelector(selector);
+            if (element && !isInRelatedSection(element)) {
+              mainGallery = element;
+              break;
             }
           }
-
-          // Fallback: get all large images
+          
+          let images: string[] = [];
+          
+          // If we found a main gallery, prioritize images from there
+          if (mainGallery) {
+            const galleryImages = Array.from(mainGallery.querySelectorAll('img'))
+              .filter(img => !isInRelatedSection(img))
+              .map(img => {
+                const element = img as HTMLImageElement;
+                return element.src || element.dataset.src || element.dataset.original || '';
+              })
+              .filter(src => src && 
+                !src.includes('placeholder') && 
+                !src.includes('no-image') &&
+                !src.includes('logo.') &&
+                !src.includes('/logo') &&
+                !src.includes('icon') &&
+                src.includes('http'));
+            
+            images = galleryImages;
+          }
+          
+          // Fallback: get all large images, excluding related products
           if (images.length === 0) {
             const allImages = Array.from(document.querySelectorAll('img'))
               .filter(img => {
                 const imgElement = img as HTMLImageElement;
-                return imgElement.width > 100 && imgElement.height > 100;
+                // Check size - must be reasonably large
+                const isLargeEnough = imgElement.width > 150 && imgElement.height > 150;
+                // Not in related products section
+                const notInRelated = !isInRelatedSection(imgElement);
+                
+                return isLargeEnough && notInRelated;
               })
-              .map(img => img.src)
+              .map(img => {
+                const element = img as HTMLImageElement;
+                return element.src || element.dataset.src || '';
+              })
               .filter(src => src && 
                 !src.includes('logo') && 
                 !src.includes('icon') &&
@@ -345,10 +377,11 @@ export class UniversalScraper {
                 !src.includes('banner') &&
                 src.includes('http')
               );
-            images = allImages.slice(0, 10); // Limit to 10 images
+            images = allImages;
           }
 
-          return [...new Set(images)]; // Remove duplicates
+          // Remove duplicates and limit to first 10 for processing
+          return [...new Set(images)].slice(0, 10);
         };
 
         // Get product name

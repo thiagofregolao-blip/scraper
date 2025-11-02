@@ -5,6 +5,8 @@ import archiver from 'archiver';
 import { PrismaClient } from '@prisma/client';
 import { UniversalScraper, ProductInfo } from './scrapers';
 import { sanitizeFileName, downloadImage, ensureDirectoryExists, getFileExtension } from './utils';
+import https from 'https';
+import http from 'http';
 
 export class ProductProcessor {
   private prisma: PrismaClient;
@@ -13,6 +15,83 @@ export class ProductProcessor {
   constructor() {
     this.prisma = new PrismaClient();
     this.scraper = new UniversalScraper();
+  }
+
+  // Check image size before downloading
+  private async getImageSize(url: string): Promise<number> {
+    return new Promise((resolve) => {
+      try {
+        const protocol = url.startsWith('https') ? https : http;
+        const request = protocol.request(url, { method: 'HEAD' }, (response) => {
+          const size = parseInt(response.headers['content-length'] || '0', 10);
+          resolve(size);
+        });
+        
+        request.on('error', () => resolve(0));
+        request.setTimeout(5000, () => {
+          request.destroy();
+          resolve(0);
+        });
+        request.end();
+      } catch (error) {
+        resolve(0);
+      }
+    });
+  }
+
+  // Generate product description using AI
+  private async generateDescription(productInfo: ProductInfo): Promise<string> {
+    try {
+      const prompt = `Você é um especialista em criar descrições de produtos para e-commerce.
+
+Produto: ${productInfo.name}
+Preço: ${productInfo.price || 'Não informado'}
+Descrição original: ${productInfo.description}
+
+Crie uma descrição profissional e atraente em português para este produto. A descrição deve:
+- Ter entre 100-200 palavras
+- Destacar os principais benefícios
+- Ser persuasiva e convidativa
+- Incluir características técnicas quando relevante
+- Usar linguagem clara e objetiva
+
+Responda APENAS com a descrição do produto, sem títulos ou formatação adicional.`;
+
+      const response = await fetch('https://apps.abacus.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.ABACUSAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4.1-mini',
+          messages: [
+            { role: 'system', content: 'Você é um especialista em copywriting para e-commerce, criando descrições atraentes em português.' },
+            { role: 'user', content: prompt }
+          ],
+          max_tokens: 500,
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const generatedDescription = data.choices?.[0]?.message?.content?.trim();
+      
+      if (!generatedDescription) {
+        throw new Error('No description generated');
+      }
+
+      console.log(`Generated AI description for: ${productInfo.name}`);
+      return generatedDescription;
+    } catch (error) {
+      console.error('Error generating AI description:', error);
+      // Fallback to a simple Portuguese description
+      return `${productInfo.name}\n\n${productInfo.description || 'Produto de qualidade premium. Entre em contato para mais informações.'}\n\nPreço: ${productInfo.price || 'Consultar'}`;
+    }
   }
 
   async processJob(jobId: string): Promise<void> {
@@ -101,22 +180,43 @@ export class ProductProcessor {
           const productDir = path.join(tempDir, folderName);
           ensureDirectoryExists(productDir);
 
-          // Download images
+          // Filter and download images (only large, high-quality images)
           const imagePaths: string[] = [];
-          for (const [imgIndex, imageUrl] of productInfo.images.entries()) {
-            const extension = getFileExtension(imageUrl);
-            const imageName = `imagem_${imgIndex + 1}${extension}`;
-            const imagePath = path.join(productDir, imageName);
+          const minImageSize = 50 * 1024; // 50KB minimum
+          const maxImages = 5; // Maximum 5 images per product
+          let downloadedCount = 0;
 
-            const success = await downloadImage(imageUrl, imagePath);
-            if (success) {
-              imagePaths.push(imageName);
+          for (const imageUrl of productInfo.images) {
+            if (downloadedCount >= maxImages) {
+              break;
+            }
+
+            // Check image size before downloading
+            const imageSize = await this.getImageSize(imageUrl);
+            
+            // Only download if image is large enough (>50KB)
+            if (imageSize >= minImageSize) {
+              const extension = getFileExtension(imageUrl);
+              const imageName = `imagem_${downloadedCount + 1}${extension}`;
+              const imagePath = path.join(productDir, imageName);
+
+              const success = await downloadImage(imageUrl, imagePath);
+              if (success) {
+                imagePaths.push(imageName);
+                downloadedCount++;
+                console.log(`Downloaded image ${downloadedCount}/${maxImages} (${Math.round(imageSize / 1024)}KB) for ${productInfo.name}`);
+              }
+            } else {
+              console.log(`Skipped small image (${Math.round(imageSize / 1024)}KB) for ${productInfo.name}`);
             }
           }
 
-          // Save description
+          // Generate AI description in Portuguese
+          const aiDescription = await this.generateDescription(productInfo);
+
+          // Save AI-generated description
           const descriptionPath = path.join(productDir, 'descricao.txt');
-          fs.writeFileSync(descriptionPath, productInfo.description, 'utf8');
+          fs.writeFileSync(descriptionPath, aiDescription, 'utf8');
 
           // Save info
           const infoContent = [
