@@ -66,7 +66,10 @@ export default function ProductScraperApp() {
   }, [currentJob, toast]);
 
   const handleStartScrape = async () => {
+    console.log('[Frontend] handleStartScrape called, URL:', url);
+    
     if (!url?.trim()) {
+      console.log('[Frontend] URL is empty');
       toast({
         title: "URL Requerida",
         description: "Por favor, insira a URL da categoria para extrair.",
@@ -75,18 +78,22 @@ export default function ProductScraperApp() {
       return;
     }
 
+    console.log('[Frontend] Starting scrape for URL:', url.trim());
     setIsProcessing(true);
     setError(null);
     setCurrentJob(null);
 
     try {
+      console.log('[Frontend] Sending POST request to /api/scrape');
       const response = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: url.trim() }),
       });
 
+      console.log('[Frontend] Response status:', response.status);
       const result: StartScrapeResponse = await response.json();
+      console.log('[Frontend] Response data:', result);
 
       if (!result?.success || !result?.jobId) {
         throw new Error(result?.error || "Falha ao iniciar extração");
@@ -97,6 +104,7 @@ export default function ProductScraperApp() {
         description: "Iniciando a extração de produtos...",
       });
 
+      console.log('[Frontend] Fetching initial job status for:', result.jobId);
       // Fetch initial job status
       const jobResponse = await fetch(`/api/jobs/${result.jobId}`);
       if (jobResponse?.ok) {

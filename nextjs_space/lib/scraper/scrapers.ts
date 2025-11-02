@@ -40,13 +40,16 @@ export class UniversalScraper {
     if (!this.page) throw new Error('Scraper not initialized');
 
     try {
+      console.log(`[Scraper] Navigating to category: ${categoryUrl}`);
+      
       await this.page.goto(categoryUrl, { 
         waitUntil: 'networkidle0', 
         timeout: 60000 
       });
 
+      console.log('[Scraper] Page loaded, waiting for content...');
       // Wait for content to load
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 3000));
 
       const domain = extractDomain(categoryUrl);
       
@@ -69,24 +72,30 @@ export class UniversalScraper {
 
       for (const selector of linkSelectors) {
         try {
+          console.log(`[Scraper] Trying selector: ${selector}`);
           const links = await this.page.$$eval(selector, (elements) =>
             elements.map(el => (el as HTMLAnchorElement).href)
           );
           
           if (links.length > 0) {
+            console.log(`[Scraper] Found ${links.length} links with selector: ${selector}`);
             productLinks = links;
             break;
           }
         } catch (error) {
+          console.log(`[Scraper] Selector ${selector} failed: ${error}`);
           // Continue to next selector
         }
       }
 
       // Fallback: get all links and filter by common patterns
       if (productLinks.length === 0) {
+        console.log('[Scraper] No links found with specific selectors, trying fallback...');
         const allLinks = await this.page.$$eval('a[href]', (elements) =>
           elements.map(el => (el as HTMLAnchorElement).href)
         );
+
+        console.log(`[Scraper] Found ${allLinks.length} total links on page`);
 
         productLinks = allLinks.filter(link => {
           if (!isValidUrl(link)) return false;
@@ -101,11 +110,13 @@ export class UniversalScraper {
                  path.includes('/p/') ||
                  path.match(/\/[^\/]*\d+[^\/]*$/); // URLs ending with numbers
         });
+        
+        console.log(`[Scraper] After filtering: ${productLinks.length} product links`);
       }
 
       // Remove duplicates and limit results
       const uniqueLinks = [...new Set(productLinks)].slice(0, 100);
-      console.log(`Found ${uniqueLinks.length} product links on ${categoryUrl}`);
+      console.log(`[Scraper] Final result: ${uniqueLinks.length} unique product links on ${categoryUrl}`);
       
       return uniqueLinks;
     } catch (error) {
