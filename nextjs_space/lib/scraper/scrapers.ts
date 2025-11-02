@@ -57,11 +57,11 @@ export class UniversalScraper {
         });
       } 
       // LG IMPORTADOS específico
-      else if (domain.includes('lgimportados.com.py')) {
-        $('.product-link, .product a, [class*="product"] a').each((_, el) => {
+      else if (domain.includes('lgimportados.com')) {
+        $('.product-card a, .product-link, [class*="product"] a').each((_, el) => {
           const href = $(el).attr('href');
-          if (href && href.includes('/producto/')) {
-            const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
+          if (href && (href.includes('produto/') || href.includes('/produto/'))) {
+            const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
             allProductLinks.add(fullUrl);
           }
         });
@@ -126,6 +126,9 @@ export class UniversalScraper {
       if (domain.includes('shoppingchina.com.py')) {
         const nextBtn = $('a.next, a[rel="next"], .pagination-next a').first();
         nextPageUrl = nextBtn.attr('href') || null;
+      } else if (domain.includes('lgimportados.com')) {
+        const nextBtn = $('a:contains("Próx."), a:contains("Next"), .pagination a[href*="pagina"]').first();
+        nextPageUrl = nextBtn.attr('href') || null;
       } else {
         // Genérico
         const nextBtn = $('a.next, a[rel="next"], a:contains("Siguiente"), a:contains("Next"), .pagination a:contains(">")').first();
@@ -133,7 +136,13 @@ export class UniversalScraper {
       }
 
       if (nextPageUrl) {
-        nextPageUrl = nextPageUrl.startsWith('http') ? nextPageUrl : `${baseUrl}${nextPageUrl}`;
+        if (nextPageUrl.startsWith('http')) {
+          // Já é URL completa
+        } else if (nextPageUrl.startsWith('/')) {
+          nextPageUrl = `${baseUrl}${nextPageUrl}`;
+        } else {
+          nextPageUrl = `${baseUrl}/${nextPageUrl}`;
+        }
       }
 
       // Verificar se é a mesma URL ou se não tem próxima página
@@ -185,35 +194,45 @@ export class UniversalScraper {
 
       // Preço
       let price = '';
+      const urlDomain = new URL(url).hostname;
       
-      // Primeiro tentar seletores tradicionais
-      const priceSelectors = [
-        '[class*="price"]',
-        '[class*="Price"]',
-        '[class*="precio"]',
-        '[itemprop="price"]',
-        '.valor',
-        '.amount',
-      ];
-
-      for (const selector of priceSelectors) {
-        const text = $(selector).first().text().trim();
-        if (text && /\d/.test(text)) {
-          price = text;
-          break;
+      // LG Importados: buscar Gs. no HTML inteiro
+      if (urlDomain.includes('lgimportados.com')) {
+        const bodyText = $('body').text();
+        const gsMatch = bodyText.match(/Gs\.?\s*[\d.,]+/);
+        if (gsMatch) {
+          price = gsMatch[0];
         }
-      }
+      } else {
+        // Outros sites: tentar seletores tradicionais
+        const priceSelectors = [
+          '[class*="price"]',
+          '[class*="Price"]',
+          '[class*="precio"]',
+          '[itemprop="price"]',
+          '.valor',
+          '.amount',
+        ];
 
-      // Se não encontrou, buscar por padrões de preço no texto
-      if (!price) {
-        $('*').each((_, el) => {
-          const text = $(el).text().trim();
-          const match = text.match(/Gs\.?\s*[\d.,]+|U?\$\s*[\d.,]+|USD\s*[\d.,]+/);
-          if (match && text.length < 50) { // Evitar pegar preços de descrições longas
-            price = match[0];
-            return false; // break
+        for (const selector of priceSelectors) {
+          const text = $(selector).first().text().trim();
+          if (text && /\d/.test(text)) {
+            price = text;
+            break;
           }
-        });
+        }
+
+        // Se não encontrou, buscar por padrões de preço no texto
+        if (!price) {
+          $('*').each((_, el) => {
+            const text = $(el).text().trim();
+            const match = text.match(/Gs\.?\s*[\d.,]+|U?\$\s*[\d.,]+|USD\s*[\d.,]+/);
+            if (match && text.length < 50) {
+              price = match[0];
+              return false; // break
+            }
+          });
+        }
       }
 
       // Descrição
