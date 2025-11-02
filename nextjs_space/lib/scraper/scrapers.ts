@@ -52,7 +52,8 @@ export class UniversalScraper {
       
       // Generic selectors for product links
       const linkSelectors = [
-        'a[href*="/produto/"]',
+        'a[href*="/producto/"]', // Spanish sites like shoppingchina.com.py
+        'a[href*="/produto/"]',  // Portuguese sites
         'a[href*="/product/"]',
         'a[href*="/item/"]',
         'a[href*="/p/"]',
@@ -93,8 +94,9 @@ export class UniversalScraper {
           if (linkDomain !== domain) return false;
           
           const path = link.toLowerCase();
-          return path.includes('/produto/') || 
-                 path.includes('/product/') || 
+          return path.includes('/producto/') || // Spanish
+                 path.includes('/produto/') ||  // Portuguese
+                 path.includes('/product/') ||  // English
                  path.includes('/item/') ||
                  path.includes('/p/') ||
                  path.match(/\/[^\/]*\d+[^\/]*$/); // URLs ending with numbers
@@ -137,20 +139,74 @@ export class UniversalScraper {
           return '';
         };
 
+        const getDescription = (): string => {
+          // Try to find description heading first
+          const descriptionHeadings = Array.from(document.querySelectorAll('h1, h2, h3, h4, h5, h6'))
+            .find(h => h.textContent?.toLowerCase().includes('descrip'));
+          
+          if (descriptionHeadings) {
+            // Get text content after description heading
+            let nextElement = descriptionHeadings.nextElementSibling;
+            let description = '';
+            
+            while (nextElement && description.length < 500) {
+              const text = nextElement.textContent?.trim() || '';
+              if (text.length > 20) {
+                description += text + '\n\n';
+              }
+              nextElement = nextElement.nextElementSibling;
+            }
+            
+            if (description.trim()) return description.trim();
+          }
+          
+          // Fallback to common selectors
+          const desc = getTextContent([
+            '.product-description',
+            '.item-description', 
+            '.description',
+            '.descripcion',
+            '.product-details',
+            '[data-testid*="description"]',
+            '.product-content',
+            '.item-details'
+          ]);
+          
+          // If still no description, try to get all paragraph text
+          if (!desc) {
+            const paragraphs = Array.from(document.querySelectorAll('p'))
+              .map(p => p.textContent?.trim() || '')
+              .filter(text => text.length > 50)
+              .join('\n\n');
+            
+            if (paragraphs) return paragraphs.substring(0, 1000);
+          }
+          
+          return desc || 'Descrição não disponível';
+        };
+
         const getImageUrls = (): string[] => {
-          const selectors = [
+          // First try to get high-resolution product images
+          const productImagesSelectors = [
+            'img[src*="producto"]',
+            'img[src*="product"]',
+            'img[src*="item"]',
+            'img[alt*="product"]',
+            'img[alt*="producto"]',
             '.product-image img',
             '.product-gallery img',
             '.item-image img',
             '.zoom-image',
             '[data-testid*="image"] img',
             '.product-photos img',
-            '.gallery img'
+            '.gallery img',
+            'img[src*="active_storage"]', // For Rails Active Storage
+            'img[src*="cdn"]'
           ];
 
           let images: string[] = [];
           
-          for (const selector of selectors) {
+          for (const selector of productImagesSelectors) {
             const elements = document.querySelectorAll(selector);
             if (elements.length > 0) {
               images = Array.from(elements)
@@ -158,20 +214,30 @@ export class UniversalScraper {
                   const element = img as HTMLImageElement;
                   return element.src || element.dataset.src || element.dataset.original || '';
                 })
-                .filter(src => src && !src.includes('placeholder') && !src.includes('no-image'));
+                .filter(src => src && 
+                  !src.includes('placeholder') && 
+                  !src.includes('no-image') &&
+                  !src.includes('logo.') &&
+                  !src.includes('/logo') &&
+                  !src.includes('icon'));
               
               if (images.length > 0) break;
             }
           }
 
-          // Fallback: get all images
+          // Fallback: get all large images
           if (images.length === 0) {
             const allImages = Array.from(document.querySelectorAll('img'))
+              .filter(img => {
+                const imgElement = img as HTMLImageElement;
+                return imgElement.width > 100 && imgElement.height > 100;
+              })
               .map(img => img.src)
               .filter(src => src && 
                 !src.includes('logo') && 
                 !src.includes('icon') &&
                 !src.includes('placeholder') &&
+                !src.includes('banner') &&
                 src.includes('http')
               );
             images = allImages.slice(0, 10); // Limit to 10 images
@@ -193,19 +259,12 @@ export class UniversalScraper {
         ]);
 
         // Get product description
-        const description = getTextContent([
-          '.product-description',
-          '.item-description', 
-          '.description',
-          '.product-details',
-          '[data-testid*="description"]',
-          '.product-content',
-          '.item-details'
-        ]);
+        const description = getDescription();
 
         // Get price
         const price = getTextContent([
           '.price',
+          '.precio',
           '.product-price',
           '.item-price',
           '[data-testid*="price"]',
@@ -215,7 +274,7 @@ export class UniversalScraper {
 
         return {
           name: name || document.title || 'Produto sem nome',
-          description: description || 'Descrição não disponível',
+          description: description,
           price: price || '',
           images: getImageUrls(),
           url: window.location.href
