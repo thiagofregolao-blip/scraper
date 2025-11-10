@@ -40,8 +40,9 @@ export class UniversalScraper {
     let currentUrl = categoryUrl;
     let pageNum = 1;
     const domain = new URL(categoryUrl).hostname;
+    const maxPages = 500; // Máximo de páginas para evitar loops infinitos
 
-    while (pageNum <= 20) {
+    while (pageNum <= maxPages) {
       console.log(`Página ${pageNum}: ${currentUrl}`);
       
       const html = await this.fetchHTML(currentUrl);
