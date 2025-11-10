@@ -183,6 +183,11 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       // Process each product
       for (const [index, productUrl] of productLinks.entries()) {
         try {
+          // Log progress every 50 products
+          if (index % 50 === 0) {
+            console.log(`[${jobId}] Progresso: ${index}/${productLinks.length} produtos processados`);
+          }
+
           await this.prisma.scrapeJob.update({
             where: { id: jobId },
             data: { 
@@ -190,10 +195,14 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
             }
           });
 
-          // Scrape product info
-          const productInfo = await this.scraper.scrapeProduct(productUrl);
+          // Scrape product info with timeout protection
+          const productInfo = await Promise.race([
+            this.scraper.scrapeProduct(productUrl),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)) // 60s timeout per product
+          ]);
           
           if (!productInfo) {
+            console.log(`[${jobId}] Produto ${index + 1} ignorado (timeout ou sem dados)`);
             continue;
           }
 
@@ -286,11 +295,18 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
             }
           });
 
+          // Small delay between products to avoid overwhelming the system
+          if (index % 10 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 100)); // 100ms pause every 10 products
+          }
+
         } catch (error) {
-          console.error(`Error processing product ${productUrl}:`, error);
-          // Continue with next product
+          console.error(`[${jobId}] Erro ao processar produto ${index + 1} (${productUrl}):`, error);
+          // Continue with next product instead of stopping entire job
         }
       }
+
+      console.log(`[${jobId}] Processamento concluído: ${processedCount}/${productLinks.length} produtos extraídos com sucesso`);
 
       // Create ZIP file
       await this.prisma.scrapeJob.update({
@@ -313,7 +329,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       });
 
     } catch (error) {
-      console.error(`Error processing job ${jobId}:`, error);
+      console.error(`[${jobId}] Erro fatal ao processar job:`, error);
       
       // Update job as failed
       await this.prisma.scrapeJob.update({
@@ -325,7 +341,11 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         }
       });
     } finally {
-      await this.scraper.close();
+      try {
+        await this.scraper.close();
+      } catch (closeError) {
+        console.error(`[${jobId}] Erro ao fechar scraper:`, closeError);
+      }
     }
   }
 

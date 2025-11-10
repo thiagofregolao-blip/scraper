@@ -12,9 +12,13 @@ export interface ProductInfo {
 
 export class UniversalScraper {
   private userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  private maxProducts: number = 10000; // Limite máximo de produtos
 
-  async initialize(): Promise<void> {
-    console.log('Scraper inicializado (usando Cheerio - sem navegador)');
+  async initialize(maxProducts?: number): Promise<void> {
+    if (maxProducts) {
+      this.maxProducts = maxProducts;
+    }
+    console.log(`Scraper inicializado (usando Cheerio - sem navegador, limite: ${this.maxProducts} produtos)`);
   }
 
   private async fetchHTML(url: string): Promise<string> {
@@ -146,8 +150,14 @@ export class UniversalScraper {
       }
 
       // Verificar se é a mesma URL ou se não tem próxima página
-      if (!nextPageUrl || nextPageUrl === currentUrl || allProductLinks.size >= 500) {
+      if (!nextPageUrl || nextPageUrl === currentUrl) {
         console.log('Fim da paginação');
+        break;
+      }
+
+      // Verificar limite de produtos
+      if (allProductLinks.size >= this.maxProducts) {
+        console.log(`Limite de ${this.maxProducts} produtos atingido`);
         break;
       }
 
