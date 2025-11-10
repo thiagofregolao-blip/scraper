@@ -15,30 +15,41 @@ export async function GET(
   try {
     const params = await context.params;
     
+    console.log(`[Download] Requisição para job: ${params.id}`);
+    
     const job = await prisma.scrapeJob.findUnique({
       where: { id: params.id }
     });
 
     if (!job) {
+      console.error(`[Download] Job não encontrado: ${params.id}`);
       return NextResponse.json(
         { error: 'Job não encontrado' },
         { status: 404 }
       );
     }
 
+    console.log(`[Download] Job encontrado - Status: ${job.status}, ZipPath: ${job.zipPath}`);
+
     if (job.status !== 'completed' || !job.zipPath) {
+      console.error(`[Download] Job não está completo ou sem ZIP - Status: ${job.status}`);
       return NextResponse.json(
         { error: 'Job não está completo ou arquivo ZIP não encontrado' },
         { status: 400 }
       );
     }
 
+    console.log(`[Download] Verificando existência do arquivo: ${job.zipPath}`);
+    
     if (!fs.existsSync(job.zipPath)) {
+      console.error(`[Download] Arquivo não existe no caminho: ${job.zipPath}`);
       return NextResponse.json(
         { error: 'Arquivo ZIP não encontrado' },
         { status: 404 }
       );
     }
+
+    console.log(`[Download] Arquivo encontrado, enviando...`);
 
     const fileBuffer = fs.readFileSync(job.zipPath);
     

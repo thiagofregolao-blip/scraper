@@ -308,14 +308,30 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
 
       console.log(`[${jobId}] Processamento concluído: ${processedCount}/${productLinks.length} produtos extraídos com sucesso`);
 
-      // Create ZIP file
+      // Create ZIP file in permanent downloads directory
       await this.prisma.scrapeJob.update({
         where: { id: jobId },
         data: { currentProduct: 'Gerando arquivo ZIP...' }
       });
 
-      const zipPath = path.join(tempDir, 'produtos.zip');
+      // Create downloads directory if it doesn't exist
+      const downloadsDir = path.join(process.cwd(), 'downloads');
+      ensureDirectoryExists(downloadsDir);
+
+      // Use category name for ZIP filename
+      const zipCategoryName = this.extractCategoryName(job.url) || jobId;
+      const zipFileName = `${zipCategoryName}_${jobId.substring(0, 8)}.zip`;
+      const zipPath = path.join(downloadsDir, zipFileName);
+
       await this.createZip(tempDir, zipPath);
+
+      // Verify ZIP was created
+      if (!fs.existsSync(zipPath)) {
+        throw new Error(`ZIP file não foi criado: ${zipPath}`);
+      }
+
+      const zipStats = fs.statSync(zipPath);
+      console.log(`[${jobId}] ZIP criado com sucesso: ${zipPath} (${Math.round(zipStats.size / 1024)}KB)`);
 
       // Update job as completed
       await this.prisma.scrapeJob.update({
