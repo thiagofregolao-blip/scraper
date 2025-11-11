@@ -6,6 +6,38 @@ import { PrismaClient } from '@prisma/client';
 import { UniversalScraper, ProductInfo } from './scrapers';
 import { sanitizeFileName, downloadImage, ensureDirectoryExists, getFileExtension } from './utils';
 import https from 'https';
+
+// Get the downloads directory path that works in both dev and production
+function getDownloadsDir(): string {
+  // In production, Next.js changes the cwd, so we need to find the right path
+  const possiblePaths = [
+    path.join(process.cwd(), 'public', 'downloads'),           // Development
+    path.join(process.cwd(), '..', 'public', 'downloads'),      // Production standalone
+    path.join(__dirname, '..', '..', '..', 'public', 'downloads'),    // Relative to compiled file
+  ];
+  
+  // Try to use the first existing path, or create it
+  for (const dir of possiblePaths) {
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      // Test if we can write to this directory
+      const testFile = path.join(dir, '.test');
+      fs.writeFileSync(testFile, 'test');
+      fs.unlinkSync(testFile);
+      console.log(`[Downloads] Using directory: ${dir}`);
+      return dir;
+    } catch (e) {
+      continue;
+    }
+  }
+  
+  // Fallback to first option and hope for the best
+  const fallback = possiblePaths[0];
+  fs.mkdirSync(fallback, { recursive: true });
+  return fallback;
+}
 import http from 'http';
 
 export class ProductProcessor {
@@ -314,9 +346,8 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         data: { currentProduct: 'Gerando arquivo ZIP...' }
       });
 
-      // Create downloads directory if it doesn't exist
-      const downloadsDir = path.join(process.cwd(), 'downloads');
-      ensureDirectoryExists(downloadsDir);
+      // Get the downloads directory (works in both dev and production)
+      const downloadsDir = getDownloadsDir();
 
       // Use category name for ZIP filename
       const zipCategoryName = this.extractCategoryName(job.url) || jobId;
