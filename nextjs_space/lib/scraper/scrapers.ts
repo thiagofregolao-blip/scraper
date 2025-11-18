@@ -132,12 +132,50 @@ export class UniversalScraper {
         const nextBtn = $('a.next, a[rel="next"], .pagination-next a').first();
         nextPageUrl = nextBtn.attr('href') || null;
       } else if (domain.includes('lgimportados.com')) {
-        const nextBtn = $('a:contains("Próx."), a:contains("Next"), .pagination a[href*="pagina"]').first();
-        nextPageUrl = nextBtn.attr('href') || null;
+        // LG Importados tem 3 elementos de paginação separados
+        // Procurar especificamente pelo link com "Próx." no texto
+        let foundNext = false;
+        $('.pagination a').each((_, el) => {
+          const text = $(el).text().trim();
+          if (text.includes('Próx') || text.includes('Next')) {
+            nextPageUrl = $(el).attr('href') || null;
+            foundNext = true;
+            return false; // break
+          }
+        });
+        
+        // Fallback: procurar links com href contendo "pagina" e número maior
+        if (!foundNext) {
+          const currentMatch = currentUrl.match(/pagina(\d+)/);
+          const currentPage = currentMatch ? parseInt(currentMatch[1]) : 1;
+          const nextPage = currentPage + 1;
+          
+          $('.pagination a[href*="pagina"]').each((_, el) => {
+            const href = $(el).attr('href');
+            if (href && href.includes(`pagina${nextPage}`)) {
+              nextPageUrl = href;
+              return false; // break
+            }
+          });
+        }
       } else {
-        // Genérico
-        const nextBtn = $('a.next, a[rel="next"], a:contains("Siguiente"), a:contains("Next"), .pagination a:contains(">")').first();
-        nextPageUrl = nextBtn.attr('href') || null;
+        // Genérico - procurar por links de próxima página
+        let foundNext = false;
+        $('a.next, a[rel="next"]').each((_, el) => {
+          nextPageUrl = $(el).attr('href') || null;
+          foundNext = true;
+          return false;
+        });
+        
+        if (!foundNext) {
+          $('.pagination a, .paginacao a, [class*="paginat"] a').each((_, el) => {
+            const text = $(el).text().trim().toLowerCase();
+            if (text.includes('siguiente') || text.includes('next') || text === '>') {
+              nextPageUrl = $(el).attr('href') || null;
+              return false; // break
+            }
+          });
+        }
       }
 
       if (nextPageUrl) {
