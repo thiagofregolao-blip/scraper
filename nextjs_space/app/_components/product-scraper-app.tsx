@@ -33,7 +33,8 @@ export default function ProductScraperApp() {
 
   // Poll for job updates when processing
   useEffect(() => {
-    if (!currentJob || currentJob.status === 'completed' || currentJob.status === 'failed') {
+    const status = currentJob?.status;
+    if (!currentJob || status === 'completed' || status === 'failed' || (status as any) === 'paused') {
       return;
     }
 
@@ -171,6 +172,38 @@ export default function ProductScraperApp() {
     }
   };
 
+  const handleResume = async () => {
+    if (!currentJob?.id) return;
+
+    try {
+      const response = await fetch(`/api/resume/${currentJob.id}`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Erro ao retomar');
+      }
+
+      toast({
+        title: "Retomando Extração",
+        description: `Continuando do produto ${currentJob.processedProducts + 1}...`,
+      });
+
+      // Update job status to trigger polling
+      setCurrentJob({
+        ...currentJob,
+        status: 'processing' as any
+      });
+    } catch (err) {
+      toast({
+        title: "Erro ao Retomar",
+        description: err instanceof Error ? err.message : "Erro desconhecido",
+        variant: "destructive",
+      });
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'processing':
@@ -179,6 +212,8 @@ export default function ProductScraperApp() {
         return <CheckCircle className="w-4 h-4" />;
       case 'failed':
         return <AlertCircle className="w-4 h-4" />;
+      case 'paused':
+        return <Clock className="w-4 h-4" />;
       default:
         return <Clock className="w-4 h-4" />;
     }
@@ -192,6 +227,8 @@ export default function ProductScraperApp() {
         return 'bg-green-500';
       case 'failed':
         return 'bg-red-500';
+      case 'paused':
+        return 'bg-yellow-500';
       default:
         return 'bg-gray-500';
     }
@@ -261,6 +298,7 @@ export default function ProductScraperApp() {
                 {currentJob.status === 'processing' && 'Processando'}
                 {currentJob.status === 'completed' && 'Concluído'}
                 {currentJob.status === 'failed' && 'Falhou'}
+                {(currentJob.status as any) === 'paused' && 'Pausado'}
               </Badge>
             </CardTitle>
           </CardHeader>
@@ -315,6 +353,24 @@ export default function ProductScraperApp() {
             )}
 
             {/* Download Button */}
+            {/* Resume Button */}
+            {(currentJob.status as any) === 'paused' && (
+              <div className="pt-4 border-t">
+                <Alert className="mb-4 bg-yellow-50 border-yellow-200">
+                  <Clock className="h-4 w-4 text-yellow-600" />
+                  <AlertDescription className="text-yellow-800">
+                    Extração pausada. {currentJob.processedProducts} produtos foram salvos. 
+                    Você pode retomar de onde parou.
+                  </AlertDescription>
+                </Alert>
+                <Button onClick={handleResume} className="w-full bg-yellow-600 hover:bg-yellow-700" size="lg">
+                  <Loader2 className="w-5 h-5 mr-2" />
+                  Retomar Extração
+                </Button>
+              </div>
+            )}
+
+            {/* Download Button */}
             {currentJob.status === 'completed' && (
               <div className="pt-4 border-t">
                 <Button onClick={handleDownload} className="w-full" size="lg">
@@ -325,10 +381,12 @@ export default function ProductScraperApp() {
             )}
 
             {/* Error Message */}
-            {currentJob.status === 'failed' && currentJob.errorMessage && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{currentJob.errorMessage}</AlertDescription>
+            {(currentJob.status === 'failed' || (currentJob.status as any) === 'paused') && currentJob.errorMessage && (
+              <Alert variant={(currentJob.status as any) === 'paused' ? 'default' : 'destructive'} className={(currentJob.status as any) === 'paused' ? 'bg-yellow-50 border-yellow-200' : ''}>
+                <AlertCircle className={`h-4 w-4 ${(currentJob.status as any) === 'paused' ? 'text-yellow-600' : ''}`} />
+                <AlertDescription className={(currentJob.status as any) === 'paused' ? 'text-yellow-800' : ''}>
+                  {currentJob.errorMessage}
+                </AlertDescription>
               </Alert>
             )}
           </CardContent>

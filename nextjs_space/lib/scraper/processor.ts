@@ -157,11 +157,12 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
     }
   }
 
-  async processJob(jobId: string): Promise<void> {
+  async processJob(jobId: string, isResume: boolean = false): Promise<void> {
     try {
       // Get job details
       const job = await this.prisma.scrapeJob.findUnique({
-        where: { id: jobId }
+        where: { id: jobId },
+        include: { products: true }
       });
 
       if (!job) {
@@ -171,15 +172,34 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       // Extract category name from URL
       const categoryName = this.extractCategoryName(job.url);
 
-      // Update job status to processing and save category name
-      await this.prisma.scrapeJob.update({
-        where: { id: jobId },
-        data: { 
-          status: 'processing',
-          categoryName: categoryName,
-          currentProduct: 'Inicializando scraper...'
-        }
-      });
+      // Determine starting point
+      let startIndex = 0;
+      let existingProducts: string[] = [];
+      
+      if (isResume && job.canResume) {
+        startIndex = job.lastProductIndex;
+        existingProducts = job.products.map(p => p.originalUrl);
+        console.log(`[${jobId}] Retomando do produto ${startIndex + 1}`);
+        
+        await this.prisma.scrapeJob.update({
+          where: { id: jobId },
+          data: { 
+            status: 'processing',
+            currentProduct: `Retomando do produto ${startIndex + 1}...`
+          }
+        });
+      } else {
+        // Update job status to processing and save category name
+        await this.prisma.scrapeJob.update({
+          where: { id: jobId },
+          data: { 
+            status: 'processing',
+            categoryName: categoryName,
+            currentProduct: 'Inicializando scraper...',
+            canResume: true // Habilita retomada desde o início
+          }
+        });
+      }
 
       // Initialize scraper
       await this.scraper.initialize();
@@ -210,14 +230,32 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       const tempDir = path.join(process.cwd(), 'temp', jobId);
       ensureDirectoryExists(tempDir);
 
-      let processedCount = 0;
+      let processedCount = isResume ? job.processedProducts : 0;
 
       // Process each product
       for (const [index, productUrl] of productLinks.entries()) {
         try {
-          // Log progress every 50 products
-          if (index % 50 === 0) {
-            console.log(`[${jobId}] Progresso: ${index}/${productLinks.length} produtos processados`);
+          // Skip products before startIndex when resuming
+          if (index < startIndex) {
+            continue;
+          }
+
+          // Skip already processed products
+          if (existingProducts.includes(productUrl)) {
+            console.log(`[${jobId}] Produto ${index + 1} já processado, pulando...`);
+            continue;
+          }
+
+          // Save checkpoint every 50 products
+          if (index % 50 === 0 && index > 0) {
+            console.log(`[${jobId}] Checkpoint: ${index}/${productLinks.length} produtos processados`);
+            await this.prisma.scrapeJob.update({
+              where: { id: jobId },
+              data: {
+                lastProductIndex: index,
+                canResume: true
+              }
+            });
           }
 
           await this.prisma.scrapeJob.update({
@@ -376,17 +414,34 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       });
 
     } catch (error) {
-      console.error(`[${jobId}] Erro fatal ao processar job:`, error);
+      console.error(`[${jobId}] Erro ao processar job:`, error);
       
-      // Update job as failed
+      // Check if we have any progress to allow resume
+      const currentJob = await this.prisma.scrapeJob.findUnique({
+        where: { id: jobId }
+      });
+      
+      const hasProgress = currentJob && currentJob.processedProducts > 0;
+      
+      // Update job as paused if we have progress, failed otherwise
+      const updateData: any = {
+        status: hasProgress ? 'paused' : 'failed',
+        errorMessage: error instanceof Error ? error.message : 'Erro desconhecido',
+        canResume: hasProgress
+      };
+      
+      if (!hasProgress) {
+        updateData.completedAt = new Date();
+      }
+      
       await this.prisma.scrapeJob.update({
         where: { id: jobId },
-        data: {
-          status: 'failed',
-          errorMessage: error instanceof Error ? error.message : 'Erro desconhecido',
-          completedAt: new Date()
-        }
+        data: updateData
       });
+      
+      if (hasProgress) {
+        console.log(`[${jobId}] Job pausado. ${currentJob.processedProducts} produtos salvos. Use 'Retomar' para continuar.`);
+      }
     } finally {
       try {
         await this.scraper.close();

@@ -13,13 +13,16 @@ model ScrapeJob {
   id                String   @id @default(uuid())
   url               String
   categoryName      String?
-  status            String   @default("pending") // pending, processing, completed, failed
+  status            String   @default("pending") // pending, processing, completed, failed, paused
   progress          Int      @default(0)
   totalProducts     Int      @default(0)
   processedProducts Int      @default(0)
   currentProduct    String?
   zipPath           String?
   errorMessage      String?
+  lastProcessedPage String?  // Para retomar paginação
+  lastProductIndex  Int      @default(0) // Índice do último produto processado
+  canResume         Boolean  @default(false) // Indica se pode retomar
   createdAt         DateTime @default(now())
   completedAt       DateTime?
   products          Product[]
