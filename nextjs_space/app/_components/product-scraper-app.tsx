@@ -31,6 +31,24 @@ export default function ProductScraperApp() {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
+  // Load paused or processing jobs on mount
+  useEffect(() => {
+    const loadLatestJob = async () => {
+      try {
+        const response = await fetch('/api/jobs/latest');
+        if (response.ok) {
+          const job = await response.json();
+          if (job && (job.status === 'processing' || (job.status as any) === 'paused')) {
+            setCurrentJob(job);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading latest job:', err);
+      }
+    };
+    loadLatestJob();
+  }, []);
+
   // Poll for job updates when processing
   useEffect(() => {
     const status = currentJob?.status;
