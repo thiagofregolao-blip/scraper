@@ -21,7 +21,8 @@ import {
   AlertCircle,
   Package,
   Clock,
-  TrendingUp
+  TrendingUp,
+  XCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { ScrapeJob, StartScrapeResponse, ScrapingProgress } from "@/lib/types";
@@ -234,6 +235,47 @@ export default function ProductScraperApp() {
     }
   };
 
+  const handleCancel = async () => {
+    if (!currentJob?.id) return;
+
+    const confirmCancel = confirm(
+      'Tem certeza que deseja cancelar este job? Esta ação não pode ser desfeita.'
+    );
+
+    if (!confirmCancel) return;
+
+    try {
+      const response = await fetch(`/api/jobs/cancel/${currentJob.id}`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Erro ao cancelar');
+      }
+
+      const data = await response.json();
+
+      toast({
+        title: "Job Cancelado",
+        description: "O job foi cancelado com sucesso.",
+      });
+
+      // Update job status to reflect cancellation
+      setCurrentJob({
+        ...currentJob,
+        status: 'failed' as any,
+        errorMessage: 'Job cancelado manualmente pelo usuário'
+      });
+    } catch (err) {
+      toast({
+        title: "Erro ao Cancelar",
+        description: err instanceof Error ? err.message : "Erro desconhecido",
+        variant: "destructive",
+      });
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'processing':
@@ -403,7 +445,21 @@ export default function ProductScraperApp() {
               </div>
             )}
 
-            {/* Download Button */}
+            {/* Cancel Button - Show when processing */}
+            {currentJob.status === 'processing' && (
+              <div className="pt-4 border-t">
+                <Button 
+                  onClick={handleCancel} 
+                  variant="destructive"
+                  className="w-full" 
+                  size="lg"
+                >
+                  <XCircle className="w-5 h-5 mr-2" />
+                  Cancelar Job
+                </Button>
+              </div>
+            )}
+
             {/* Resume Button */}
             {(currentJob.status as any) === 'paused' && (
               <div className="pt-4 border-t">
