@@ -11,7 +11,9 @@ const prisma = new PrismaClient();
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { url } = body;
+    const { url, saveToDatabase = false } = body;
+
+    console.log('[API Scrape] Request received - URL:', url, 'Save to DB:', saveToDatabase);
 
     if (!url || typeof url !== 'string') {
       return NextResponse.json(
@@ -35,15 +37,19 @@ export async function POST(request: NextRequest) {
       }
     });
 
+    console.log('[API Scrape] Job created:', job.id);
+
     // Start processing in background
     const processor = new ProductProcessor();
     
     // Don't await this - let it run in background
-    processor.processJob(job.id).catch(console.error);
+    // Pass saveToDatabase flag to processor
+    processor.processJob(job.id, false, saveToDatabase).catch(console.error);
 
     return NextResponse.json({
       success: true,
-      jobId: job.id
+      jobId: job.id,
+      saveToDatabase: saveToDatabase
     });
 
   } catch (error) {

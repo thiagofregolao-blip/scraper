@@ -5,6 +5,7 @@ import archiver from 'archiver';
 import { PrismaClient } from '@prisma/client';
 import { UniversalScraper, ProductInfo } from './scrapers';
 import { sanitizeFileName, downloadImage, ensureDirectoryExists, getFileExtension } from './utils';
+import { sendProductToBanco, sendProductsBatchToBanco, testBancoConnection } from '../banco-integration';
 import https from 'https';
 
 // Get the downloads directory path that works in both dev and production
@@ -157,8 +158,20 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
     }
   }
 
-  async processJob(jobId: string, isResume: boolean = false): Promise<void> {
+  async processJob(jobId: string, isResume: boolean = false, saveToDatabase: boolean = false): Promise<void> {
     try {
+      // Test database connection if needed
+      if (saveToDatabase) {
+        console.log(`[${jobId}] 🔗 Testando conexão com Banco de Produtos...`);
+        const canConnect = await testBancoConnection();
+        if (!canConnect) {
+          console.log(`[${jobId}] ⚠️ Não foi possível conectar ao Banco. Produtos serão salvos apenas localmente.`);
+          saveToDatabase = false; // Disable saving to database if connection fails
+        } else {
+          console.log(`[${jobId}] ✅ Conexão com Banco OK. Produtos serão enviados automaticamente.`);
+        }
+      }
+
       // Get job details
       const job = await this.prisma.scrapeJob.findUnique({
         where: { id: jobId },
@@ -353,6 +366,31 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
               completedAt: new Date()
             }
           });
+
+          // Send product to Banco de Produtos if enabled
+          if (saveToDatabase) {
+            try {
+              const fullImagePaths = imagePaths.map(img => path.join(productDir, img));
+              
+              const bancoResult = await sendProductToBanco({
+                name: productInfo.name,
+                description: aiDescription, // Use AI-generated description
+                price: productInfo.price,
+                category: categoryName,
+                urlOriginal: productInfo.url,
+                imagePaths: fullImagePaths
+              });
+
+              if (bancoResult.success) {
+                console.log(`[${jobId}] ✅ Produto "${productInfo.name}" enviado ao Banco`);
+              } else {
+                console.log(`[${jobId}] ⚠️ Falha ao enviar "${productInfo.name}" ao Banco: ${bancoResult.error}`);
+              }
+            } catch (bancoError) {
+              console.error(`[${jobId}] ❌ Erro ao enviar produto ao Banco:`, bancoError);
+              // Continue processing even if Banco save fails
+            }
+          }
 
           processedCount++;
 

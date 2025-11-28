@@ -10,6 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { 
   Download, 
   Link2, 
@@ -29,6 +31,7 @@ export default function ProductScraperApp() {
   const [currentJob, setCurrentJob] = useState<ScrapeJob | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveToDatabase, setSaveToDatabase] = useState(false);
   const { toast } = useToast();
 
   // Load paused or processing jobs on mount
@@ -119,10 +122,14 @@ export default function ProductScraperApp() {
 
     try {
       console.log('[Frontend] Sending POST request to /api/scrape');
+      console.log('[Frontend] Save to database:', saveToDatabase);
       const response = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim() }),
+        body: JSON.stringify({ 
+          url: url.trim(),
+          saveToDatabase: saveToDatabase 
+        }),
       });
 
       console.log('[Frontend] Response status:', response.status);
@@ -296,6 +303,27 @@ export default function ProductScraperApp() {
                 </>
               )}
             </Button>
+          </div>
+
+          <div className="flex items-center space-x-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <Checkbox 
+              id="save-to-database"
+              checked={saveToDatabase}
+              onCheckedChange={(checked) => setSaveToDatabase(checked === true)}
+              disabled={isProcessing || currentJob?.status === 'processing'}
+            />
+            <Label 
+              htmlFor="save-to-database"
+              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex items-center gap-2"
+            >
+              <Package className="w-4 h-4 text-blue-600" />
+              <span>
+                Salvar automaticamente no Banco de Produtos
+                <span className="text-xs text-gray-500 ml-2">
+                  (produtos serão enviados via API)
+                </span>
+              </span>
+            </Label>
           </div>
 
           {error && (
