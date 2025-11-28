@@ -38,12 +38,17 @@ export default function ProductScraperApp() {
         const response = await fetch('/api/jobs/latest');
         if (response.ok) {
           const job = await response.json();
+          // IMPORTANTE: Nunca carregar jobs completed automaticamente
+          // Apenas processing ou paused
           if (job && (job.status === 'processing' || (job.status as any) === 'paused')) {
+            console.log('[Auto-load] Carregando job:', job.id, 'Status:', job.status);
             setCurrentJob(job);
+          } else if (job) {
+            console.log('[Auto-load] Job ignorado (status não permitido):', job.status);
           }
         }
       } catch (err) {
-        console.error('Error loading latest job:', err);
+        console.error('[Auto-load] Erro ao carregar job:', err);
       }
     };
     loadLatestJob();

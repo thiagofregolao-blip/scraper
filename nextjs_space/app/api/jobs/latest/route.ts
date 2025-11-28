@@ -8,12 +8,37 @@ const prisma = new PrismaClient();
 
 export async function GET() {
   try {
-    // Find the most recent job that is either processing or paused
+    // Clean up old stale jobs (processing for more than 24 hours)
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await prisma.scrapeJob.updateMany({
+      where: {
+        status: 'processing',
+        createdAt: {
+          lt: twentyFourHoursAgo
+        }
+      },
+      data: {
+        status: 'failed',
+        errorMessage: 'Job expirou após 24 horas sem conclusão'
+      }
+    });
+
+    // Only return recent jobs (last 6 hours) that are processing or paused
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
     const job = await prisma.scrapeJob.findFirst({
       where: {
-        OR: [
-          { status: 'processing' },
-          { status: 'paused' }
+        AND: [
+          {
+            OR: [
+              { status: 'processing' },
+              { status: 'paused' }
+            ]
+          },
+          {
+            createdAt: {
+              gte: sixHoursAgo
+            }
+          }
         ]
       },
       orderBy: {
