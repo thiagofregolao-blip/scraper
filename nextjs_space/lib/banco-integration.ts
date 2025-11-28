@@ -42,10 +42,15 @@ interface BatchResponse {
  */
 function imageToBase64(imagePath: string): string | null {
   try {
+    console.log(`[Banco] 🔍 Tentando converter imagem: ${imagePath}`);
+    
     if (!fs.existsSync(imagePath)) {
-      console.log(`[Banco] Imagem não encontrada: ${imagePath}`);
+      console.error(`[Banco] ❌ Imagem NÃO ENCONTRADA: ${imagePath}`);
       return null;
     }
+
+    const stats = fs.statSync(imagePath);
+    console.log(`[Banco] 📊 Tamanho do arquivo: ${Math.round(stats.size / 1024)}KB`);
 
     const imageBuffer = fs.readFileSync(imagePath);
     const ext = path.extname(imagePath).toLowerCase();
@@ -56,9 +61,12 @@ function imageToBase64(imagePath: string): string | null {
     else if (ext === '.gif') mimeType = 'image/gif';
 
     const base64 = imageBuffer.toString('base64');
+    const base64Length = base64.length;
+    console.log(`[Banco] ✅ Imagem convertida para base64 (${Math.round(base64Length / 1024)}KB)`);
+    
     return `data:${mimeType};base64,${base64}`;
   } catch (error) {
-    console.error(`[Banco] Erro ao converter imagem ${imagePath}:`, error);
+    console.error(`[Banco] ❌ ERRO ao converter imagem ${imagePath}:`, error);
     return null;
   }
 }
@@ -117,10 +125,14 @@ export async function sendProductToBanco(
   }
 
   // Converter imagens para base64
+  console.log(`[Banco] 🖼️ Processando ${productData.imagePaths?.length || 0} imagens para "${productData.name}"`);
+  
   const images: ProductImage[] = [];
   if (productData.imagePaths && productData.imagePaths.length > 0) {
     for (let i = 0; i < productData.imagePaths.length; i++) {
       const imagePath = productData.imagePaths[i];
+      console.log(`[Banco] Imagem ${i + 1}/${productData.imagePaths.length}: ${imagePath}`);
+      
       const base64Data = imageToBase64(imagePath);
       
       if (base64Data) {
@@ -129,9 +141,16 @@ export async function sendProductToBanco(
           filename: path.basename(imagePath),
           order: i
         });
+        console.log(`[Banco] ✅ Imagem ${i + 1} adicionada ao payload`);
+      } else {
+        console.log(`[Banco] ⚠️ Imagem ${i + 1} não pôde ser convertida`);
       }
     }
+  } else {
+    console.log(`[Banco] ⚠️ Nenhum imagePath fornecido para "${productData.name}"`);
   }
+
+  console.log(`[Banco] 📦 Total de imagens convertidas: ${images.length}`);
 
   // Preparar dados do produto
   const bancoProduct: BancoProduct = {
@@ -143,9 +162,19 @@ export async function sendProductToBanco(
     images: images.length > 0 ? images : undefined
   };
 
+  console.log(`[Banco] 📋 Payload preparado:`, {
+    name: bancoProduct.name,
+    hasDescription: !!bancoProduct.description,
+    price: bancoProduct.price,
+    category: bancoProduct.category,
+    imageCount: images.length
+  });
+
   // Tentar enviar com retry
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
+      console.log(`[Banco] 📡 Enviando requisição (tentativa ${attempt}/${retries})...`);
+      
       const response = await fetch(`${BANCO_API_URL}/api/scraper/product`, {
         method: 'POST',
         headers: {
@@ -155,23 +184,27 @@ export async function sendProductToBanco(
         body: JSON.stringify(bancoProduct)
       });
 
+      console.log(`[Banco] 📥 Status da resposta: ${response.status} ${response.statusText}`);
+
       const result = await response.json();
+      console.log(`[Banco] 📄 Resposta da API:`, result);
 
       if (result.success) {
-        console.log(`[Banco] ✅ Produto enviado: ${productData.name}`);
+        console.log(`[Banco] ✅ Produto "${productData.name}" enviado com SUCESSO!`);
         return result;
       } else {
-        console.log(`[Banco] ❌ Erro ao enviar produto (tentativa ${attempt}/${retries}):`, result.message || result.error);
+        console.log(`[Banco] ❌ API retornou erro (tentativa ${attempt}/${retries}):`, result.message || result.error);
         
         if (attempt === retries) {
           return result;
         }
         
         // Aguardar antes de tentar novamente
+        console.log(`[Banco] ⏳ Aguardando ${1000 * attempt}ms antes de tentar novamente...`);
         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }
     } catch (error: any) {
-      console.error(`[Banco] ❌ Erro de conexão (tentativa ${attempt}/${retries}):`, error.message);
+      console.error(`[Banco] ❌ ERRO DE CONEXÃO (tentativa ${attempt}/${retries}):`, error.message);
       
       if (attempt === retries) {
         return {
@@ -181,6 +214,7 @@ export async function sendProductToBanco(
       }
       
       // Aguardar antes de tentar novamente
+      console.log(`[Banco] ⏳ Aguardando ${1000 * attempt}ms antes de tentar novamente...`);
       await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
     }
   }

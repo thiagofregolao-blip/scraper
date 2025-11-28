@@ -370,7 +370,15 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
           // Send product to Banco de Produtos if enabled
           if (saveToDatabase) {
             try {
-              const fullImagePaths = imagePaths.map(img => path.join(productDir, img));
+              // Build full image paths with absolute paths
+              const fullImagePaths = imagePaths.map(img => {
+                const fullPath = path.join(productDir, img);
+                console.log(`[Banco] Verificando imagem: ${fullPath}`);
+                console.log(`[Banco] Arquivo existe: ${fs.existsSync(fullPath)}`);
+                return fullPath;
+              });
+              
+              console.log(`[${jobId}] 📤 Enviando produto "${productInfo.name}" ao Banco com ${fullImagePaths.length} imagens`);
               
               const bancoResult = await sendProductToBanco({
                 name: productInfo.name,
@@ -382,9 +390,9 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
               });
 
               if (bancoResult.success) {
-                console.log(`[${jobId}] ✅ Produto "${productInfo.name}" enviado ao Banco`);
+                console.log(`[${jobId}] ✅ Produto "${productInfo.name}" enviado ao Banco com sucesso`);
               } else {
-                console.log(`[${jobId}] ⚠️ Falha ao enviar "${productInfo.name}" ao Banco: ${bancoResult.error}`);
+                console.log(`[${jobId}] ⚠️ Falha ao enviar "${productInfo.name}" ao Banco: ${bancoResult.error || bancoResult.message}`);
               }
             } catch (bancoError) {
               console.error(`[${jobId}] ❌ Erro ao enviar produto ao Banco:`, bancoError);
