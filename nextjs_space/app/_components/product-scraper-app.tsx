@@ -38,27 +38,8 @@ export default function ProductScraperApp() {
   const { toast } = useToast();
 
   // Load paused or processing jobs on mount
-  useEffect(() => {
-    const loadLatestJob = async () => {
-      try {
-        const response = await fetch('/api/jobs/latest');
-        if (response.ok) {
-          const job = await response.json();
-          // IMPORTANTE: Nunca carregar jobs completed automaticamente
-          // Apenas processing ou paused
-          if (job && (job.status === 'processing' || (job.status as any) === 'paused')) {
-            console.log('[Auto-load] Carregando job:', job.id, 'Status:', job.status);
-            setCurrentJob(job);
-          } else if (job) {
-            console.log('[Auto-load] Job ignorado (status não permitido):', job.status);
-          }
-        }
-      } catch (err) {
-        console.error('[Auto-load] Erro ao carregar job:', err);
-      }
-    };
-    loadLatestJob();
-  }, []);
+  // Removed auto-load: each tab now works with its own job only
+  // This prevents multiple tabs from being locked to the same job
 
   // Poll for job updates when processing
   useEffect(() => {
