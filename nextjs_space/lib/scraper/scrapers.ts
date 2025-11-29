@@ -72,10 +72,10 @@ export class UniversalScraper {
         });
       }
       // CELLSHOP específico
-      else if (domain.includes('cellshop.com.py')) {
-        $('.product a, [class*="product-item"] a').each((_, el) => {
+      else if (domain.includes('cellshop.com')) {
+        $('.product a, [class*="product-item"] a, .product-card a, .card-product a').each((_, el) => {
           const href = $(el).attr('href');
-          if (href && (href.includes('/producto/') || href.includes('/product/'))) {
+          if (href && (href.includes('/producto/') || href.includes('/product/') || href.includes('/p/'))) {
             const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
             allProductLinks.add(fullUrl);
           }
@@ -411,10 +411,10 @@ export class UniversalScraper {
           });
         }
         // CELLSHOP específico
-        else if (domain.includes('cellshop.com.py')) {
-          $('.product a, [class*="product-item"] a').each((_, el) => {
+        else if (domain.includes('cellshop.com')) {
+          $('.product a, [class*="product-item"] a, .product-card a, .card-product a').each((_, el) => {
             const href = $(el).attr('href');
-            if (href && (href.includes('/producto/') || href.includes('/product/'))) {
+            if (href && (href.includes('/producto/') || href.includes('/product/') || href.includes('/p/'))) {
               const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
               if (!allProductLinks.has(fullUrl)) {
                 allProductLinks.add(fullUrl);
@@ -487,8 +487,8 @@ export class UniversalScraper {
             const nextPage = currentPage + 1;
             nextPageUrl = currentUrl.replace(/pagina\d+/, `pagina${nextPage}`);
           }
-        } else if (domain.includes('cellshop.com.py')) {
-          const nextBtn = $('a.next-page, [class*="next"]').first();
+        } else if (domain.includes('cellshop.com')) {
+          const nextBtn = $('a.next-page, [class*="next"], .pagination a[rel="next"]').first();
           nextPageUrl = nextBtn.attr('href') || null;
         } else {
           const nextBtn = $('a.next, a[rel="next"], .pagination .next a, [class*="pagination"] [class*="next"] a').first();
