@@ -246,6 +246,8 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         console.log(`[${jobId}] Modo URL-only ativado. Gerando Excel...`);
         
         const downloadsDir = getDownloadsDir();
+        ensureDirectoryExists(downloadsDir);
+        
         const excelFileName = `${categoryName}_urls_${jobId.substring(0, 8)}.xlsx`;
         const excelPath = path.join(downloadsDir, excelFileName);
         
