@@ -11,9 +11,8 @@ import https from 'https';
 
 // Get the downloads directory path that works in both dev and production
 function getDownloadsDir(): string {
-  // Use absolute path from env or default to /tmp/downloads for production
-  const downloadsDir = process.env.DOWNLOADS_DIR || '/tmp/downloads';
-  ensureDirectoryExists(downloadsDir);
+  // Use /tmp directly - always writable in production
+  const downloadsDir = '/tmp';
   console.log(`[Downloads] Using directory: ${downloadsDir}`);
   return downloadsDir;
 }
