@@ -1,6 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { extractDomain, isValidUrl } from './utils';
+import puppeteer from 'puppeteer';
 
 export interface ProductInfo {
   name: string;
@@ -23,15 +24,69 @@ export class UniversalScraper {
 
   private async fetchHTML(url: string): Promise<string> {
     console.log(`Fetching: ${url}`);
-    const response = await axios.get(url, {
-      headers: {
-        'User-Agent': this.userAgent,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7,es;q=0.6',
-      },
-      timeout: 30000,
+    
+    try {
+      // Primeiro tenta com Axios (método rápido)
+      const response = await axios.get(url, {
+        headers: {
+          'User-Agent': this.userAgent,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7,es;q=0.6',
+        },
+        timeout: 30000,
+      });
+      
+      const html = response.data;
+      
+      // Detecta Cloudflare protection
+      if (html.includes('Just a moment') || html.includes('cf-chl-opt') || html.includes('challenge-platform')) {
+        console.log('⚠️ Cloudflare detected, switching to Puppeteer...');
+        return await this.fetchWithPuppeteer(url);
+      }
+      
+      return html;
+    } catch (error) {
+      console.error(`Axios failed, trying Puppeteer: ${error}`);
+      return await this.fetchWithPuppeteer(url);
+    }
+  }
+
+  private async fetchWithPuppeteer(url: string): Promise<string> {
+    console.log(`🤖 Using Puppeteer for: ${url}`);
+    
+    const browser = await puppeteer.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu'
+      ]
     });
-    return response.data;
+    
+    try {
+      const page = await browser.newPage();
+      await page.setUserAgent(this.userAgent);
+      
+      // Navega e espera pelo conteúdo
+      await page.goto(url, { 
+        waitUntil: 'networkidle2',
+        timeout: 60000 
+      });
+      
+      // Espera adicional para Cloudflare challenge
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      const html = await page.content();
+      console.log(`✅ Puppeteer successfully fetched ${html.length} bytes`);
+      
+      return html;
+    } finally {
+      await browser.close();
+    }
   }
 
   async getProductLinks(categoryUrl: string): Promise<string[]> {
