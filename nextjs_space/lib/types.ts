@@ -2,10 +2,12 @@
 export interface ScrapeJob {
   id: string;
   url: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'discovering' | 'processing' | 'completed' | 'failed' | 'paused';
   progress: number;
   totalProducts: number;
   processedProducts: number;
+  discoveredProducts?: number;
+  currentPage?: number;
   currentProduct?: string;
   zipPath?: string;
   errorMessage?: string;

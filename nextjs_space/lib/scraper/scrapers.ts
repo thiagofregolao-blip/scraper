@@ -357,6 +357,176 @@ export class UniversalScraper {
     }
   }
 
+  /**
+   * Processa produtos página por página em streaming
+   * Retorna um async generator que descobre e processa produtos simultaneamente
+   */
+  async *getProductLinksStreaming(categoryUrl: string): AsyncGenerator<{
+    pageNumber: number;
+    productLinks: string[];
+    hasNextPage: boolean;
+    totalDiscovered: number;
+  }> {
+    console.log(`[Streaming] Iniciando descoberta de: ${categoryUrl}`);
+    const allProductLinks = new Set<string>();
+    let currentUrl = categoryUrl;
+    let pageNum = 1;
+    const domain = new URL(categoryUrl).hostname;
+    const maxPages = 500;
+
+    while (pageNum <= maxPages) {
+      console.log(`[Streaming] Página ${pageNum}: ${currentUrl}`);
+      
+      try {
+        const html = await this.fetchHTML(currentUrl);
+        const $ = cheerio.load(html);
+        const baseUrl = new URL(categoryUrl).origin;
+        const pageProductsCountBefore = allProductLinks.size;
+        const currentPageProducts: string[] = [];
+
+        // SHOPPING CHINA específico
+        if (domain.includes('shoppingchina.com.py')) {
+          $('.product-item a, .product-card a, [class*="product"] > a').each((_, el) => {
+            const href = $(el).attr('href');
+            if (href && (href.includes('/producto/') || href.includes('/product/'))) {
+              const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
+              if (!allProductLinks.has(fullUrl)) {
+                allProductLinks.add(fullUrl);
+                currentPageProducts.push(fullUrl);
+              }
+            }
+          });
+        } 
+        // LG IMPORTADOS específico
+        else if (domain.includes('lgimportados.com')) {
+          $('.product-card a, .product-link, [class*="product"] a').each((_, el) => {
+            const href = $(el).attr('href');
+            if (href && (href.includes('produto/') || href.includes('/produto/'))) {
+              const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
+              if (!allProductLinks.has(fullUrl)) {
+                allProductLinks.add(fullUrl);
+                currentPageProducts.push(fullUrl);
+              }
+            }
+          });
+        }
+        // CELLSHOP específico
+        else if (domain.includes('cellshop.com.py')) {
+          $('.product a, [class*="product-item"] a').each((_, el) => {
+            const href = $(el).attr('href');
+            if (href && (href.includes('/producto/') || href.includes('/product/'))) {
+              const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
+              if (!allProductLinks.has(fullUrl)) {
+                allProductLinks.add(fullUrl);
+                currentPageProducts.push(fullUrl);
+              }
+            }
+          });
+        }
+        // Genérico
+        else {
+          $('a').each((_, el) => {
+            const href = $(el).attr('href');
+            if (href) {
+              const isProductLink = 
+                href.includes('/producto/') ||
+                href.includes('/product/') ||
+                (href.includes('/p/') && /\/p\/\d+/.test(href)) ||
+                (href.includes('/item/') && /\/item\/\d+/.test(href));
+
+              const isNotProduct =
+                href.includes('/categoria') ||
+                href.includes('/category') ||
+                href.includes('/tag/') ||
+                href.includes('/search') ||
+                href.includes('/filter') ||
+                href.includes('?') ||
+                href.includes('#') ||
+                href === '/' ||
+                href.length < 10;
+
+              if (isProductLink && !isNotProduct) {
+                const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
+                if (isValidUrl(fullUrl) && fullUrl.includes(domain) && !allProductLinks.has(fullUrl)) {
+                  allProductLinks.add(fullUrl);
+                  currentPageProducts.push(fullUrl);
+                }
+              }
+            }
+          });
+        }
+
+        console.log(`[Streaming] Encontrados ${currentPageProducts.length} novos produtos na página ${pageNum}`);
+
+        // Se não encontrou produtos novos, parar
+        if (currentPageProducts.length === 0 && pageNum > 1) {
+          console.log('[Streaming] Sem novos produtos, finalizando...');
+          break;
+        }
+
+        // Buscar próxima página
+        let nextPageUrl: string | null = null;
+
+        if (domain.includes('shoppingchina.com.py')) {
+          const nextBtn = $('a.next, a[rel="next"], .pagination-next a').first();
+          nextPageUrl = nextBtn.attr('href') || null;
+        } else if (domain.includes('lgimportados.com')) {
+          let foundNext = false;
+          $('.pagination a').each((_, el) => {
+            const text = $(el).text().trim();
+            if (text.includes('Próx') || text.includes('Next')) {
+              nextPageUrl = $(el).attr('href') || null;
+              foundNext = true;
+              return false;
+            }
+          });
+          
+          if (!foundNext) {
+            const currentMatch = currentUrl.match(/pagina(\d+)/);
+            const currentPage = currentMatch ? parseInt(currentMatch[1]) : 1;
+            const nextPage = currentPage + 1;
+            nextPageUrl = currentUrl.replace(/pagina\d+/, `pagina${nextPage}`);
+          }
+        } else if (domain.includes('cellshop.com.py')) {
+          const nextBtn = $('a.next-page, [class*="next"]').first();
+          nextPageUrl = nextBtn.attr('href') || null;
+        } else {
+          const nextBtn = $('a.next, a[rel="next"], .pagination .next a, [class*="pagination"] [class*="next"] a').first();
+          nextPageUrl = nextBtn.attr('href') || null;
+        }
+
+        const hasNextPage = !!nextPageUrl;
+
+        // Retornar produtos da página atual
+        yield {
+          pageNumber: pageNum,
+          productLinks: currentPageProducts,
+          hasNextPage,
+          totalDiscovered: allProductLinks.size
+        };
+
+        // Se não há próxima página, parar
+        if (!hasNextPage || !nextPageUrl) {
+          console.log('[Streaming] Última página alcançada');
+          break;
+        }
+
+        // Preparar próxima URL
+        currentUrl = nextPageUrl.startsWith('http') ? nextPageUrl : `${baseUrl}${nextPageUrl}`;
+        pageNum++;
+
+        // Delay entre páginas
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+      } catch (error) {
+        console.error(`[Streaming] Erro na página ${pageNum}:`, error);
+        break;
+      }
+    }
+
+    console.log(`[Streaming] Descoberta concluída: ${allProductLinks.size} produtos encontrados`);
+  }
+
   async close(): Promise<void> {
     console.log('Scraper fechado');
   }

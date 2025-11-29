@@ -194,96 +194,128 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       // Initialize scraper
       await this.scraper.initialize();
 
-      // Update status
-      await this.prisma.scrapeJob.update({
-        where: { id: jobId },
-        data: { currentProduct: 'Buscando produtos na categoria...' }
-      });
-
-      // Get product links
-      const productLinks = await this.scraper.getProductLinks(job.url);
-      
-      if (productLinks.length === 0) {
-        throw new Error('Nenhum produto encontrado na categoria');
-      }
-
-      // Update total products
+      // Update status to discovering
       await this.prisma.scrapeJob.update({
         where: { id: jobId },
         data: { 
-          totalProducts: productLinks.length,
-          currentProduct: `Encontrados ${productLinks.length} produtos. Iniciando extração...`,
-          urlOnlyMode: urlOnlyMode
+          status: 'discovering',
+          currentProduct: 'Descobrindo produtos página 1...',
+          currentPage: 1
         }
       });
-
-      // URL-only mode: generate Excel and finish
-      if (urlOnlyMode) {
-        console.log(`[${jobId}] Modo URL-only ativado. Gerando Excel em memória...`);
-        
-        const productsData = productLinks.map((url, index) => ({
-          '#': index + 1,
-          'URL do Produto': url,
-          'Categoria': categoryName || 'Sem categoria'
-        }));
-        
-        const excelBuffer = generateExcelBuffer(productsData, categoryName || 'Produtos');
-        
-        await this.prisma.scrapeJob.update({
-          where: { id: jobId },
-          data: {
-            status: 'completed',
-            processedProducts: productLinks.length,
-            progress: 100,
-            excelData: excelBuffer,
-            completedAt: new Date(),
-            currentProduct: `Excel gerado com ${productLinks.length} URLs`
-          }
-        });
-        
-        await this.scraper.close();
-        console.log(`[${jobId}] Excel gerado com sucesso em memória (${excelBuffer.length} bytes)`);
-        return;
-      }
 
       // Create temp directory for this job
       const tempDir = path.join(process.cwd(), 'temp', jobId);
       ensureDirectoryExists(tempDir);
 
       let processedCount = isResume ? job.processedProducts : 0;
+      let totalDiscovered = 0;
+      const allProductLinks: string[] = [];
 
-      // Process each product
-      for (const [index, productUrl] of productLinks.entries()) {
-        try {
-          // Skip products before startIndex when resuming
-          if (index < startIndex) {
-            continue;
+      // Process products page by page using streaming
+      for await (const pageData of this.scraper.getProductLinksStreaming(job.url)) {
+        const { pageNumber, productLinks: pageProducts, hasNextPage, totalDiscovered: discoveredSoFar } = pageData;
+        
+        totalDiscovered = discoveredSoFar;
+        allProductLinks.push(...pageProducts);
+
+        console.log(`[${jobId}] Página ${pageNumber}: ${pageProducts.length} produtos descobertos (total: ${totalDiscovered})`);
+
+        // Update job with discovery progress
+        await this.prisma.scrapeJob.update({
+          where: { id: jobId },
+          data: {
+            currentPage: pageNumber,
+            discoveredProducts: totalDiscovered,
+            currentProduct: hasNextPage 
+              ? `Descobrindo produtos página ${pageNumber}... (${totalDiscovered} produtos encontrados)`
+              : `Descoberta concluída: ${totalDiscovered} produtos encontrados. Iniciando processamento...`
           }
+        });
 
-          // Skip already processed products
-          if (existingProducts.includes(productUrl)) {
-            console.log(`[${jobId}] Produto ${index + 1} já processado, pulando...`);
-            continue;
-          }
-
-          // Save checkpoint every 50 products
-          if (index % 50 === 0 && index > 0) {
-            console.log(`[${jobId}] Checkpoint: ${index}/${productLinks.length} produtos processados`);
+        // If URL-only mode, just collect URLs
+        if (urlOnlyMode) {
+          // If last page, generate Excel
+          if (!hasNextPage) {
+            console.log(`[${jobId}] Modo URL-only: gerando Excel com ${allProductLinks.length} URLs...`);
+            
+            const productsData = allProductLinks.map((url, index) => ({
+              '#': index + 1,
+              'URL do Produto': url,
+              'Categoria': categoryName || 'Sem categoria'
+            }));
+            
+            const excelBuffer = generateExcelBuffer(productsData, categoryName || 'Produtos');
+            
             await this.prisma.scrapeJob.update({
               where: { id: jobId },
               data: {
-                lastProductIndex: index,
-                canResume: true
+                status: 'completed',
+                totalProducts: allProductLinks.length,
+                processedProducts: allProductLinks.length,
+                progress: 100,
+                excelData: excelBuffer,
+                completedAt: new Date(),
+                currentProduct: `Excel gerado com ${allProductLinks.length} URLs`
               }
             });
+            
+            await this.scraper.close();
+            console.log(`[${jobId}] Excel gerado com sucesso (${excelBuffer.length} bytes)`);
+            return;
           }
+          // Continue to next page
+          continue;
+        }
 
+        // Normal mode: process products from this page immediately
+        // Change status to processing after first page is discovered
+        if (pageNumber === 1) {
           await this.prisma.scrapeJob.update({
             where: { id: jobId },
-            data: { 
-              currentProduct: `Processando produto ${index + 1} de ${productLinks.length}...`
+            data: {
+              status: 'processing',
+              totalProducts: totalDiscovered,
+              urlOnlyMode: urlOnlyMode
             }
           });
+        }
+
+        // Process each product from current page
+        for (const [localIndex, productUrl] of pageProducts.entries()) {
+          const globalIndex = allProductLinks.indexOf(productUrl);
+          
+          try {
+            // Skip products before startIndex when resuming
+            if (globalIndex < startIndex) {
+              continue;
+            }
+
+            // Skip already processed products
+            if (existingProducts.includes(productUrl)) {
+              console.log(`[${jobId}] Produto ${globalIndex + 1} já processado, pulando...`);
+              continue;
+            }
+
+            // Save checkpoint every 50 products
+            if (processedCount % 50 === 0 && processedCount > 0) {
+              console.log(`[${jobId}] Checkpoint: ${processedCount}/${totalDiscovered} produtos processados`);
+              await this.prisma.scrapeJob.update({
+                where: { id: jobId },
+                data: {
+                  lastProductIndex: globalIndex,
+                  canResume: true
+                }
+              });
+            }
+
+            await this.prisma.scrapeJob.update({
+              where: { id: jobId },
+              data: { 
+                currentProduct: `Processando produto ${globalIndex + 1} de ${totalDiscovered}...`,
+                totalProducts: totalDiscovered // Update total as we discover more
+              }
+            });
 
           // Scrape product info with timeout protection
           const productInfo = await Promise.race([
@@ -292,7 +324,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
           ]);
           
           if (!productInfo) {
-            console.log(`[${jobId}] Produto ${index + 1} ignorado (timeout ou sem dados)`);
+            console.log(`[${jobId}] Produto ${globalIndex + 1} ignorado (timeout ou sem dados)`);
             continue;
           }
 
@@ -407,29 +439,33 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
             }
           }
 
-          processedCount++;
+            processedCount++;
 
-          // Update job progress
-          await this.prisma.scrapeJob.update({
-            where: { id: jobId },
-            data: { 
-              processedProducts: processedCount,
-              progress: Math.round((processedCount / productLinks.length) * 100)
+            // Update job progress
+            await this.prisma.scrapeJob.update({
+              where: { id: jobId },
+              data: { 
+                processedProducts: processedCount,
+                progress: Math.round((processedCount / totalDiscovered) * 100)
+              }
+            });
+
+            // Small delay between products to avoid overwhelming the system
+            if (processedCount % 10 === 0) {
+              await new Promise(resolve => setTimeout(resolve, 100)); // 100ms pause every 10 products
             }
-          });
 
-          // Small delay between products to avoid overwhelming the system
-          if (index % 10 === 0) {
-            await new Promise(resolve => setTimeout(resolve, 100)); // 100ms pause every 10 products
+          } catch (error) {
+            console.error(`[${jobId}] Erro ao processar produto ${globalIndex + 1} (${productUrl}):`, error);
+            // Continue with next product instead of stopping entire job
           }
+        } // End of product processing loop for current page
 
-        } catch (error) {
-          console.error(`[${jobId}] Erro ao processar produto ${index + 1} (${productUrl}):`, error);
-          // Continue with next product instead of stopping entire job
-        }
-      }
+        console.log(`[${jobId}] Página ${pageNumber} processada: ${processedCount}/${totalDiscovered} produtos totais`);
 
-      console.log(`[${jobId}] Processamento concluído: ${processedCount}/${productLinks.length} produtos extraídos com sucesso`);
+      } // End of page streaming loop
+
+      console.log(`[${jobId}] Processamento concluído: ${processedCount}/${totalDiscovered} produtos extraídos com sucesso`);
 
       // Create ZIP file in permanent downloads directory
       await this.prisma.scrapeJob.update({

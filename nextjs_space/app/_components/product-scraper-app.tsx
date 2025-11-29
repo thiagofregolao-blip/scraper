@@ -262,6 +262,8 @@ export default function ProductScraperApp() {
 
   const getStatusIcon = (status: string) => {
     switch (status) {
+      case 'discovering':
+        return <Loader2 className="w-4 h-4 animate-spin" />;
       case 'processing':
         return <Loader2 className="w-4 h-4 animate-spin" />;
       case 'completed':
@@ -277,6 +279,8 @@ export default function ProductScraperApp() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'discovering':
+        return 'bg-purple-500';
       case 'processing':
         return 'bg-blue-500';
       case 'completed':
@@ -398,6 +402,7 @@ export default function ProductScraperApp() {
               </div>
               <Badge variant="outline" className={`${getStatusColor(currentJob.status)} text-white`}>
                 {currentJob.status === 'pending' && 'Pendente'}
+                {currentJob.status === 'discovering' && 'Descobrindo Produtos'}
                 {currentJob.status === 'processing' && 'Processando'}
                 {currentJob.status === 'completed' && 'Concluído'}
                 {currentJob.status === 'failed' && 'Falhou'}
@@ -410,7 +415,11 @@ export default function ProductScraperApp() {
             <div className="space-y-2">
               <div className="flex justify-between text-sm text-gray-600">
                 <span>Progresso</span>
-                <span>{currentJob.processedProducts} de {currentJob.totalProducts} produtos</span>
+                {currentJob.status === 'discovering' ? (
+                  <span>Descobrindo página {currentJob.currentPage || 1}... ({currentJob.discoveredProducts || 0} produtos encontrados)</span>
+                ) : (
+                  <span>{currentJob.processedProducts} de {currentJob.totalProducts} produtos</span>
+                )}
               </div>
               <Progress 
                 value={currentJob.totalProducts > 0 ? (currentJob.processedProducts / currentJob.totalProducts) * 100 : 0} 
@@ -423,8 +432,12 @@ export default function ProductScraperApp() {
               <div className="flex items-center gap-3 p-4 bg-blue-50 rounded-lg">
                 <Package className="w-8 h-8 text-blue-600" />
                 <div>
-                  <p className="text-sm text-gray-600">Total de Produtos</p>
-                  <p className="text-2xl font-bold text-blue-600">{currentJob.totalProducts}</p>
+                  <p className="text-sm text-gray-600">
+                    {currentJob.status === 'discovering' ? 'Descobertos' : 'Total de Produtos'}
+                  </p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    {currentJob.status === 'discovering' ? (currentJob.discoveredProducts || 0) : currentJob.totalProducts}
+                  </p>
                 </div>
               </div>
               
@@ -439,9 +452,14 @@ export default function ProductScraperApp() {
               <div className="flex items-center gap-3 p-4 bg-purple-50 rounded-lg">
                 <TrendingUp className="w-8 h-8 text-purple-600" />
                 <div>
-                  <p className="text-sm text-gray-600">Progresso</p>
+                  <p className="text-sm text-gray-600">
+                    {currentJob.status === 'discovering' ? 'Página Atual' : 'Progresso'}
+                  </p>
                   <p className="text-2xl font-bold text-purple-600">
-                    {currentJob.totalProducts > 0 ? Math.round((currentJob.processedProducts / currentJob.totalProducts) * 100) : 0}%
+                    {currentJob.status === 'discovering' 
+                      ? (currentJob.currentPage || 1)
+                      : (currentJob.totalProducts > 0 ? Math.round((currentJob.processedProducts / currentJob.totalProducts) * 100) + '%' : '0%')
+                    }
                   </p>
                 </div>
               </div>
