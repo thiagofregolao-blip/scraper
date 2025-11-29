@@ -11,34 +11,11 @@ import https from 'https';
 
 // Get the downloads directory path that works in both dev and production
 function getDownloadsDir(): string {
-  // In production, Next.js changes the cwd, so we need to find the right path
-  const possiblePaths = [
-    path.join(process.cwd(), 'public', 'downloads'),           // Development
-    path.join(process.cwd(), '..', 'public', 'downloads'),      // Production standalone
-    path.join(__dirname, '..', '..', '..', 'public', 'downloads'),    // Relative to compiled file
-  ];
-  
-  // Try to use the first existing path, or create it
-  for (const dir of possiblePaths) {
-    try {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      // Test if we can write to this directory
-      const testFile = path.join(dir, '.test');
-      fs.writeFileSync(testFile, 'test');
-      fs.unlinkSync(testFile);
-      console.log(`[Downloads] Using directory: ${dir}`);
-      return dir;
-    } catch (e) {
-      continue;
-    }
-  }
-  
-  // Fallback to first option and hope for the best
-  const fallback = possiblePaths[0];
-  fs.mkdirSync(fallback, { recursive: true });
-  return fallback;
+  // Use downloads directory at project root - works in both dev and production
+  const downloadsDir = path.join(process.cwd(), 'downloads');
+  ensureDirectoryExists(downloadsDir);
+  console.log(`[Downloads] Using directory: ${downloadsDir}`);
+  return downloadsDir;
 }
 import http from 'http';
 
@@ -246,8 +223,6 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         console.log(`[${jobId}] Modo URL-only ativado. Gerando Excel...`);
         
         const downloadsDir = getDownloadsDir();
-        ensureDirectoryExists(downloadsDir);
-        
         const excelFileName = `${categoryName}_urls_${jobId.substring(0, 8)}.xlsx`;
         const excelPath = path.join(downloadsDir, excelFileName);
         
