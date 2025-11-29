@@ -11,9 +11,9 @@ const prisma = new PrismaClient();
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { url, saveToDatabase = false } = body;
+    const { url, saveToDatabase = false, urlOnlyMode = false } = body;
 
-    console.log('[API Scrape] Request received - URL:', url, 'Save to DB:', saveToDatabase);
+    console.log('[API Scrape] Request received - URL:', url, 'Save to DB:', saveToDatabase, 'URL-only:', urlOnlyMode);
 
     if (!url || typeof url !== 'string') {
       return NextResponse.json(
@@ -43,8 +43,8 @@ export async function POST(request: NextRequest) {
     const processor = new ProductProcessor();
     
     // Don't await this - let it run in background
-    // Pass saveToDatabase flag to processor
-    processor.processJob(job.id, false, saveToDatabase).catch(console.error);
+    // Pass saveToDatabase and urlOnlyMode flags to processor
+    processor.processJob(job.id, false, saveToDatabase, urlOnlyMode).catch(console.error);
 
     return NextResponse.json({
       success: true,

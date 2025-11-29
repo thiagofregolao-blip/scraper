@@ -23,6 +23,8 @@ model ScrapeJob {
   lastProcessedPage String?  // Para retomar paginação
   lastProductIndex  Int      @default(0) // Índice do último produto processado
   canResume         Boolean  @default(false) // Indica se pode retomar
+  urlOnlyMode       Boolean  @default(false) // Modo somente URLs
+  excelPath         String?  // Caminho do arquivo Excel gerado
   createdAt         DateTime @default(now())
   completedAt       DateTime?
   products          Product[]

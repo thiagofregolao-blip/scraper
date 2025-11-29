@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { UniversalScraper, ProductInfo } from './scrapers';
 import { sanitizeFileName, downloadImage, ensureDirectoryExists, getFileExtension } from './utils';
 import { sendProductToBanco, sendProductsBatchToBanco, testBancoConnection } from '../banco-integration';
+import { generateExcel } from '../excel-generator';
 import https from 'https';
 
 // Get the downloads directory path that works in both dev and production
@@ -158,7 +159,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
     }
   }
 
-  async processJob(jobId: string, isResume: boolean = false, saveToDatabase: boolean = false): Promise<void> {
+  async processJob(jobId: string, isResume: boolean = false, saveToDatabase: boolean = false, urlOnlyMode: boolean = false): Promise<void> {
     try {
       // Test database connection if needed
       if (saveToDatabase) {
@@ -235,9 +236,43 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         where: { id: jobId },
         data: { 
           totalProducts: productLinks.length,
-          currentProduct: `Encontrados ${productLinks.length} produtos. Iniciando extração...`
+          currentProduct: `Encontrados ${productLinks.length} produtos. Iniciando extração...`,
+          urlOnlyMode: urlOnlyMode
         }
       });
+
+      // URL-only mode: generate Excel and finish
+      if (urlOnlyMode) {
+        console.log(`[${jobId}] Modo URL-only ativado. Gerando Excel...`);
+        
+        const downloadsDir = getDownloadsDir();
+        const excelFileName = `${categoryName}_urls_${jobId.substring(0, 8)}.xlsx`;
+        const excelPath = path.join(downloadsDir, excelFileName);
+        
+        const productsData = productLinks.map((url, index) => ({
+          '#': index + 1,
+          'URL do Produto': url,
+          'Categoria': categoryName || 'Sem categoria'
+        }));
+        
+        generateExcel(productsData, excelPath, categoryName || 'Produtos');
+        
+        await this.prisma.scrapeJob.update({
+          where: { id: jobId },
+          data: {
+            status: 'completed',
+            processedProducts: productLinks.length,
+            progress: 100,
+            excelPath: excelPath,
+            completedAt: new Date(),
+            currentProduct: `Excel gerado com ${productLinks.length} URLs`
+          }
+        });
+        
+        await this.scraper.close();
+        console.log(`[${jobId}] Excel gerado com sucesso: ${excelPath}`);
+        return;
+      }
 
       // Create temp directory for this job
       const tempDir = path.join(process.cwd(), 'temp', jobId);

@@ -22,7 +22,8 @@ import {
   Package,
   Clock,
   TrendingUp,
-  XCircle
+  XCircle,
+  FileSpreadsheet
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type { ScrapeJob, StartScrapeResponse, ScrapingProgress } from "@/lib/types";
@@ -33,6 +34,7 @@ export default function ProductScraperApp() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveToDatabase, setSaveToDatabase] = useState(false);
+  const [urlOnlyMode, setUrlOnlyMode] = useState(false);
   const { toast } = useToast();
 
   // Load paused or processing jobs on mount
@@ -129,7 +131,8 @@ export default function ProductScraperApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           url: url.trim(),
-          saveToDatabase: saveToDatabase 
+          saveToDatabase: saveToDatabase,
+          urlOnlyMode: urlOnlyMode
         }),
       });
 
@@ -347,26 +350,52 @@ export default function ProductScraperApp() {
             </Button>
           </div>
 
-          <div className="flex items-center space-x-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center space-x-2 p-3 bg-green-50 border border-green-200 rounded-lg">
             <Checkbox 
-              id="save-to-database"
-              checked={saveToDatabase}
-              onCheckedChange={(checked) => setSaveToDatabase(checked === true)}
+              id="url-only-mode"
+              checked={urlOnlyMode}
+              onCheckedChange={(checked) => {
+                setUrlOnlyMode(checked === true);
+                if (checked) setSaveToDatabase(false);
+              }}
               disabled={isProcessing || currentJob?.status === 'processing'}
             />
             <Label 
-              htmlFor="save-to-database"
+              htmlFor="url-only-mode"
               className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex items-center gap-2"
             >
-              <Package className="w-4 h-4 text-blue-600" />
+              <FileSpreadsheet className="w-4 h-4 text-green-600" />
               <span>
-                Salvar automaticamente no Banco de Produtos
+                Extrair apenas URLs (gera Excel)
                 <span className="text-xs text-gray-500 ml-2">
-                  (produtos serão enviados via API)
+                  (não baixa imagens)
                 </span>
               </span>
             </Label>
           </div>
+
+          {!urlOnlyMode && (
+            <div className="flex items-center space-x-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <Checkbox 
+                id="save-to-database"
+                checked={saveToDatabase}
+                onCheckedChange={(checked) => setSaveToDatabase(checked === true)}
+                disabled={isProcessing || currentJob?.status === 'processing'}
+              />
+              <Label 
+                htmlFor="save-to-database"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer flex items-center gap-2"
+              >
+                <Package className="w-4 h-4 text-blue-600" />
+                <span>
+                  Salvar automaticamente no Banco de Produtos
+                  <span className="text-xs text-gray-500 ml-2">
+                    (produtos serão enviados via API)
+                  </span>
+                </span>
+              </Label>
+            </div>
+          )}
 
           {error && (
             <Alert variant="destructive">
@@ -481,8 +510,17 @@ export default function ProductScraperApp() {
             {currentJob.status === 'completed' && (
               <div className="pt-4 border-t">
                 <Button onClick={handleDownload} className="w-full" size="lg">
-                  <Download className="w-5 h-5 mr-2" />
-                  Baixar ZIP com Todos os Produtos
+                  {currentJob.urlOnlyMode ? (
+                    <>
+                      <FileSpreadsheet className="w-5 h-5 mr-2" />
+                      Baixar Excel com URLs
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-5 h-5 mr-2" />
+                      Baixar ZIP com Todos os Produtos
+                    </>
+                  )}
                 </Button>
               </div>
             )}

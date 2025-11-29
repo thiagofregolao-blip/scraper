@@ -9,6 +9,8 @@ export interface ScrapeJob {
   currentProduct?: string;
   zipPath?: string;
   errorMessage?: string;
+  urlOnlyMode?: boolean;
+  excelPath?: string;
   createdAt: string;
   completedAt?: string;
 }

@@ -48,7 +48,27 @@ export async function GET(
       );
     }
 
-    console.log(`[Download] Job encontrado - Status: ${job.status}, ZipPath: ${job.zipPath}`);
+    console.log(`[Download] Job encontrado - Status: ${job.status}, ZipPath: ${job.zipPath}, ExcelPath: ${job.excelPath}, URLOnly: ${job.urlOnlyMode}`);
+
+    // Handle Excel download for URL-only mode
+    if (job.urlOnlyMode && job.excelPath) {
+      if (!fs.existsSync(job.excelPath)) {
+        return NextResponse.json(
+          { error: 'Arquivo Excel não encontrado' },
+          { status: 404 }
+        );
+      }
+
+      const fileBuffer = fs.readFileSync(job.excelPath);
+      const fileName = path.basename(job.excelPath);
+
+      return new NextResponse(fileBuffer, {
+        headers: {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'Content-Disposition': `attachment; filename="${fileName}"`,
+        },
+      });
+    }
 
     if (job.status !== 'completed' || !job.zipPath) {
       console.error(`[Download] Job não está completo ou sem ZIP - Status: ${job.status}`);
