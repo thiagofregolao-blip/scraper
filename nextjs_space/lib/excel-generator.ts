@@ -1,21 +1,19 @@
 import * as XLSX from 'xlsx';
-import fs from 'fs';
-import path from 'path';
 
-export function generateExcel(
+export function generateExcelBuffer(
   products: any[],
-  outputPath: string,
   categoryName: string
-): void {
+): Buffer {
   try {
     const worksheet = XLSX.utils.json_to_sheet(products);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos');
     
-    XLSX.writeFile(workbook, outputPath);
-    console.log(`[Excel] Arquivo gerado com sucesso: ${outputPath}`);
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    console.log(`[Excel] Buffer gerado com sucesso (${buffer.length} bytes)`);
+    return buffer;
   } catch (error) {
-    console.error(`[Excel] Erro ao gerar arquivo: ${error}`);
+    console.error(`[Excel] Erro ao gerar buffer: ${error}`);
     throw error;
   }
 }

@@ -6,7 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { UniversalScraper, ProductInfo } from './scrapers';
 import { sanitizeFileName, downloadImage, ensureDirectoryExists, getFileExtension } from './utils';
 import { sendProductToBanco, sendProductsBatchToBanco, testBancoConnection } from '../banco-integration';
-import { generateExcel } from '../excel-generator';
+import { generateExcelBuffer } from '../excel-generator';
 import https from 'https';
 
 // Get the downloads directory path that works in both dev and production
@@ -219,11 +219,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
 
       // URL-only mode: generate Excel and finish
       if (urlOnlyMode) {
-        console.log(`[${jobId}] Modo URL-only ativado. Gerando Excel...`);
-        
-        const downloadsDir = getDownloadsDir();
-        const excelFileName = `${categoryName}_urls_${jobId.substring(0, 8)}.xlsx`;
-        const excelPath = path.join(downloadsDir, excelFileName);
+        console.log(`[${jobId}] Modo URL-only ativado. Gerando Excel em memória...`);
         
         const productsData = productLinks.map((url, index) => ({
           '#': index + 1,
@@ -231,7 +227,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
           'Categoria': categoryName || 'Sem categoria'
         }));
         
-        generateExcel(productsData, excelPath, categoryName || 'Produtos');
+        const excelBuffer = generateExcelBuffer(productsData, categoryName || 'Produtos');
         
         await this.prisma.scrapeJob.update({
           where: { id: jobId },
@@ -239,14 +235,14 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
             status: 'completed',
             processedProducts: productLinks.length,
             progress: 100,
-            excelPath: excelPath,
+            excelData: excelBuffer,
             completedAt: new Date(),
             currentProduct: `Excel gerado com ${productLinks.length} URLs`
           }
         });
         
         await this.scraper.close();
-        console.log(`[${jobId}] Excel gerado com sucesso: ${excelPath}`);
+        console.log(`[${jobId}] Excel gerado com sucesso em memória (${excelBuffer.length} bytes)`);
         return;
       }
 

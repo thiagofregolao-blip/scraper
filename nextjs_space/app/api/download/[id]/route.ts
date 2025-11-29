@@ -48,26 +48,26 @@ export async function GET(
       );
     }
 
-    console.log(`[Download] Job encontrado - Status: ${job.status}, ZipPath: ${job.zipPath}, ExcelPath: ${job.excelPath}, URLOnly: ${job.urlOnlyMode}`);
+    console.log(`[Download] Job encontrado - Status: ${job.status}, ZipPath: ${job.zipPath}, URLOnly: ${job.urlOnlyMode}`);
 
     // Handle Excel download for URL-only mode
-    if (job.urlOnlyMode && job.excelPath) {
-      if (!fs.existsSync(job.excelPath)) {
-        return NextResponse.json(
-          { error: 'Arquivo Excel não encontrado' },
-          { status: 404 }
-        );
-      }
+    if (job.urlOnlyMode && job.excelData) {
+      const categoryName = job.categoryName || 'produtos';
+      const fileName = `${categoryName}_urls.xlsx`;
 
-      const fileBuffer = fs.readFileSync(job.excelPath);
-      const fileName = path.basename(job.excelPath);
-
-      return new NextResponse(fileBuffer, {
+      return new NextResponse(job.excelData, {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'Content-Disposition': `attachment; filename="${fileName}"`,
         },
       });
+    }
+
+    if (job.urlOnlyMode && !job.excelData) {
+      return NextResponse.json(
+        { error: 'Arquivo Excel não encontrado' },
+        { status: 404 }
+      );
     }
 
     if (job.status !== 'completed' || !job.zipPath) {

@@ -10,7 +10,7 @@ export interface ScrapeJob {
   zipPath?: string;
   errorMessage?: string;
   urlOnlyMode?: boolean;
-  excelPath?: string;
+  excelData?: Buffer;
   createdAt: string;
   completedAt?: string;
 }

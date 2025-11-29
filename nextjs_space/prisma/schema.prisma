@@ -24,7 +24,7 @@ model ScrapeJob {
   lastProductIndex  Int      @default(0) // Índice do último produto processado
   canResume         Boolean  @default(false) // Indica se pode retomar
   urlOnlyMode       Boolean  @default(false) // Modo somente URLs
-  excelPath         String?  // Caminho do arquivo Excel gerado
+  excelData         Bytes?   // Dados do Excel em memória
   createdAt         DateTime @default(now())
   completedAt       DateTime?
   products          Product[]
