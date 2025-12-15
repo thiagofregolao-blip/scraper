@@ -168,7 +168,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       
       if (isResume && job.canResume) {
         startIndex = job.lastProductIndex;
-        existingProducts = job.products.map(p => p.originalUrl);
+        existingProducts = job.products.map((p: { originalUrl: string }) => p.originalUrl);
         console.log(`[${jobId}] Retomando do produto ${startIndex + 1}`);
         
         await this.prisma.scrapeJob.update({
