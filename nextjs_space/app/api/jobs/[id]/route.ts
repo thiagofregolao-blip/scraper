@@ -1,10 +1,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/db';
 
 export const dynamic = "force-dynamic";
-
-const prisma = new PrismaClient();
 
 export async function GET(
   request: NextRequest,
@@ -12,7 +10,7 @@ export async function GET(
 ) {
   try {
     const params = await context.params;
-    
+
     const job = await prisma.scrapeJob.findUnique({
       where: { id: params.id },
       include: {

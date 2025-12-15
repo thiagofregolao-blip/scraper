@@ -1,12 +1,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/db';
 import { ProductProcessor } from '@/lib/scraper/processor';
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes max
-
-const prisma = new PrismaClient();
 
 export async function POST(
   request: NextRequest,

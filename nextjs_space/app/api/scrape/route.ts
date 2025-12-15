@@ -1,12 +1,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/db';
 import { ProductProcessor } from '@/lib/scraper/processor';
 import { isValidUrl } from '@/lib/scraper/utils';
 
 export const dynamic = "force-dynamic";
-
-const prisma = new PrismaClient();
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,7 +39,7 @@ export async function POST(request: NextRequest) {
 
     // Start processing in background
     const processor = new ProductProcessor();
-    
+
     // Don't await this - let it run in background
     // Pass saveToDatabase and urlOnlyMode flags to processor
     processor.processJob(job.id, false, saveToDatabase, urlOnlyMode).catch(console.error);
