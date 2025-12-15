@@ -9,10 +9,29 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const dynamic = "force-dynamic";
 
+function getMetadataBase(): URL {
+  const raw =
+    process.env.NEXTAUTH_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.RAILWAY_PUBLIC_DOMAIN ||
+    process.env.RAILWAY_STATIC_URL ||
+    "http://localhost:3000";
+
+  // Normalize common Railway envs that may come without protocol
+  const normalized =
+    raw.startsWith("http://") || raw.startsWith("https://") ? raw : `https://${raw}`;
+
+  try {
+    return new URL(normalized);
+  } catch {
+    return new URL("http://localhost:3000");
+  }
+}
+
 export const metadata: Metadata = {
   title: "Product Scraper - Extração de Produtos E-commerce",
   description: "Ferramenta automatizada para extrair produtos de categorias de e-commerce com imagens e descrições",
-  metadataBase: new URL(process.env.NEXTAUTH_URL || 'http://localhost:3000'),
+  metadataBase: getMetadataBase(),
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
