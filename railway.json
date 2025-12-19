@@ -7,7 +7,7 @@
         ]
     },
     "deploy": {
-        "startCommand": "cd nextjs_space && npx prisma migrate deploy && npm run start",
+        "startCommand": "npx prisma migrate deploy && npm run start",
         "restartPolicyType": "ON_FAILURE",
         "restartPolicyMaxRetries": 10
     }
