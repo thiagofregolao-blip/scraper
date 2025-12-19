@@ -7,7 +7,7 @@
         ]
     },
     "deploy": {
-        "startCommand": "bash -lc 'set -euo pipefail; echo \"[railway] boot diagnostics\"; echo \"[railway] pwd=$(pwd)\"; echo \"[railway] ls:\"; ls -la; if [ -d nextjs_space ]; then echo \"[railway] cd nextjs_space\"; cd nextjs_space; fi; echo \"[railway] pwd=$(pwd)\"; echo \"[railway] node=$(node -v)\"; echo \"[railway] npm=$(npm -v)\"; echo \"[railway] PORT=${PORT:-}\"; echo \"[railway] starting app...\"; npm run start'",
+        "startCommand": "cd nextjs_space && npx prisma migrate deploy && npm run start",
         "restartPolicyType": "ON_FAILURE",
         "restartPolicyMaxRetries": 10
     }
