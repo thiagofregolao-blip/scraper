@@ -170,3 +170,4 @@ Thiago Fregolão
 
 - **Deploy**: https://clickofertasparaguai.abacusai.app
 - **Banco de Produtos**: https://bancodeprodutos.abacusai.app
+# Railway Deploy Trigger
