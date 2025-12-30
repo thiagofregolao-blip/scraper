@@ -53,7 +53,7 @@ export async function GET(
       const categoryName = job.categoryName || 'produtos';
       const fileName = `${categoryName}_urls.xlsx`;
 
-      return new NextResponse(job.excelData, {
+      return new NextResponse(job.excelData as any, {
         headers: {
           'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
           'Content-Disposition': `attachment; filename="${fileName}"`,
@@ -62,8 +62,18 @@ export async function GET(
     }
 
     if (job.urlOnlyMode && !job.excelData) {
+      console.log(`[Download] ERRO: Excel não encontrado. JobID: ${job.id}, Status: ${job.status}, ExcelData: ${job.excelData ? 'SIM' : 'NÃO'}`);
       return NextResponse.json(
-        { error: 'Arquivo Excel não encontrado' },
+        {
+          error: 'Arquivo Excel não encontrado',
+          debug: {
+            jobId: job.id,
+            status: job.status,
+            currentProduct: job.currentProduct,
+            hasExcelData: !!job.excelData,
+            version: '1.0.1'
+          }
+        },
         { status: 404 }
       );
     }
@@ -125,7 +135,7 @@ export async function GET(
     const categoryName = job.categoryName || 'produtos';
     const fileName = `${categoryName}.zip`;
 
-    return new NextResponse(fileBuffer, {
+    return new NextResponse(fileBuffer as any, {
       headers: {
         'Content-Type': 'application/zip',
         'Content-Disposition': `attachment; filename="${fileName}"`,
