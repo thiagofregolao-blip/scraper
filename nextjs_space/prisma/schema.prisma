@@ -35,19 +35,19 @@ model ScrapeJob {
 
 model Product {
   id           String    @id @default(uuid())
-  jobId        String
+  jobId        String?
   name         String
   description  String?
   price        String?
-  originalUrl  String
+  originalUrl  String?
   imagePaths   String[]  @default([])
-  folderName   String
+  folderName   String?
   status       String    @default("pending") // pending, processing, completed, failed
   errorMessage String?
   createdAt    DateTime  @default(now())
   completedAt  DateTime?
   
-  job          ScrapeJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job          ScrapeJob? @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@map("products")
 }
