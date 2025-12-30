@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
     const job = await prisma.scrapeJob.create({
       data: {
         url: url.trim(),
-        status: 'pending'
+        status: 'pending',
+        urlOnlyMode: urlOnlyMode
       }
     });
 

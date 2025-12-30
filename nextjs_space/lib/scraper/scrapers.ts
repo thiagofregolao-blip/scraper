@@ -24,7 +24,7 @@ export class UniversalScraper {
 
   private async fetchHTML(url: string): Promise<string> {
     console.log(`Fetching: ${url}`);
-    
+
     try {
       // Primeiro tenta com Axios (método rápido)
       const response = await axios.get(url, {
@@ -35,15 +35,15 @@ export class UniversalScraper {
         },
         timeout: 30000,
       });
-      
+
       const html = response.data;
-      
+
       // Detecta Cloudflare protection
       if (html.includes('Just a moment') || html.includes('cf-chl-opt') || html.includes('challenge-platform')) {
         console.log('⚠️ Cloudflare detected, switching to Puppeteer...');
         return await this.fetchWithPuppeteer(url);
       }
-      
+
       return html;
     } catch (error) {
       console.error(`Axios failed, trying Puppeteer: ${error}`);
@@ -53,7 +53,7 @@ export class UniversalScraper {
 
   private async fetchWithPuppeteer(url: string): Promise<string> {
     console.log(`🤖 Using Puppeteer for: ${url}`);
-    
+
     const browser = await puppeteer.launch({
       headless: true,
       args: [
@@ -66,23 +66,23 @@ export class UniversalScraper {
         '--disable-gpu'
       ]
     });
-    
+
     try {
       const page = await browser.newPage();
       await page.setUserAgent(this.userAgent);
-      
+
       // Navega e espera pelo conteúdo
-      await page.goto(url, { 
+      await page.goto(url, {
         waitUntil: 'networkidle2',
-        timeout: 60000 
+        timeout: 60000
       });
-      
+
       // Espera adicional para Cloudflare challenge
       await new Promise(resolve => setTimeout(resolve, 3000));
-      
+
       const html = await page.content();
       console.log(`✅ Puppeteer successfully fetched ${html.length} bytes`);
-      
+
       return html;
     } finally {
       await browser.close();
@@ -99,7 +99,7 @@ export class UniversalScraper {
 
     while (pageNum <= maxPages) {
       console.log(`Página ${pageNum}: ${currentUrl}`);
-      
+
       const html = await this.fetchHTML(currentUrl);
       const $ = cheerio.load(html);
 
@@ -115,7 +115,7 @@ export class UniversalScraper {
             allProductLinks.add(fullUrl);
           }
         });
-      } 
+      }
       // LG IMPORTADOS específico
       else if (domain.includes('lgimportados.com')) {
         $('.product-card a, .product-link, [class*="product"] a').each((_, el) => {
@@ -142,7 +142,7 @@ export class UniversalScraper {
           const href = $(el).attr('href');
           if (href) {
             // Filtros estritos: apenas links que parecem produtos
-            const isProductLink = 
+            const isProductLink =
               href.includes('/producto/') ||
               href.includes('/product/') ||
               (href.includes('/p/') && /\/p\/\d+/.test(href)) ||
@@ -198,13 +198,13 @@ export class UniversalScraper {
             return false; // break
           }
         });
-        
+
         // Fallback: procurar links com href contendo "pagina" e número maior
         if (!foundNext) {
           const currentMatch = currentUrl.match(/pagina(\d+)/);
           const currentPage = currentMatch ? parseInt(currentMatch[1]) : 1;
           const nextPage = currentPage + 1;
-          
+
           $('.pagination a[href*="pagina"]').each((_, el) => {
             const href = $(el).attr('href');
             if (href && href.includes(`pagina${nextPage}`)) {
@@ -221,7 +221,7 @@ export class UniversalScraper {
           foundNext = true;
           return false;
         });
-        
+
         if (!foundNext) {
           $('.pagination a, .paginacao a, [class*="paginat"] a').each((_, el) => {
             const text = $(el).text().trim().toLowerCase();
@@ -299,7 +299,7 @@ export class UniversalScraper {
       // Preço
       let price = '';
       const urlDomain = new URL(url).hostname;
-      
+
       // LG Importados: buscar Gs. no HTML inteiro
       if (urlDomain.includes('lgimportados.com')) {
         const bodyText = $('body').text();
@@ -383,13 +383,13 @@ export class UniversalScraper {
           if (src) {
             const fullUrl = src.startsWith('http') ? src : `${baseUrl}${src.startsWith('/') ? '' : '/'}${src}`;
             // Filtrar logos e ícones
-            const isValidImage = 
+            const isValidImage =
               !fullUrl.includes('logo') &&
               !fullUrl.includes('icon') &&
               !fullUrl.includes('banner') &&
               !fullUrl.includes('data:image') &&
               !images.includes(fullUrl);
-            
+
             if (isValidImage) {
               images.push(fullUrl);
             }
@@ -431,7 +431,7 @@ export class UniversalScraper {
 
     while (pageNum <= maxPages) {
       console.log(`[Streaming] Página ${pageNum}: ${currentUrl}`);
-      
+
       try {
         const html = await this.fetchHTML(currentUrl);
         const $ = cheerio.load(html);
@@ -451,7 +451,7 @@ export class UniversalScraper {
               }
             }
           });
-        } 
+        }
         // LG IMPORTADOS específico
         else if (domain.includes('lgimportados.com')) {
           $('.product-card a, .product-link, [class*="product"] a').each((_, el) => {
@@ -483,7 +483,7 @@ export class UniversalScraper {
           $('a').each((_, el) => {
             const href = $(el).attr('href');
             if (href) {
-              const isProductLink = 
+              const isProductLink =
                 href.includes('/producto/') ||
                 href.includes('/product/') ||
                 (href.includes('/p/') && /\/p\/\d+/.test(href)) ||
@@ -535,7 +535,7 @@ export class UniversalScraper {
               return false;
             }
           });
-          
+
           if (!foundNext) {
             const currentMatch = currentUrl.match(/pagina(\d+)/);
             const currentPage = currentMatch ? parseInt(currentMatch[1]) : 1;
@@ -567,7 +567,13 @@ export class UniversalScraper {
         }
 
         // Preparar próxima URL
-        currentUrl = nextPageUrl.startsWith('http') ? nextPageUrl : `${baseUrl}${nextPageUrl}`;
+        if (nextPageUrl.startsWith('http')) {
+          currentUrl = nextPageUrl;
+        } else if (nextPageUrl.startsWith('/')) {
+          currentUrl = `${baseUrl}${nextPageUrl}`;
+        } else {
+          currentUrl = `${baseUrl}/${nextPageUrl}`;
+        }
         pageNum++;
 
         // Delay entre páginas
@@ -600,7 +606,7 @@ export async function scrapeCategory(categoryUrl: string): Promise<ProductInfo[]
     for (let i = 0; i < Math.min(productLinks.length, 200); i++) {
       const link = productLinks[i];
       console.log(`Progresso: ${i + 1}/${Math.min(productLinks.length, 200)}`);
-      
+
       const product = await scraper.scrapeProduct(link);
       if (product) {
         products.push(product);
