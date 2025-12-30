@@ -32,7 +32,7 @@ export class ProductProcessor {
     try {
       const urlObj = new URL(url);
       const pathname = urlObj.pathname;
-      
+
       // Try to extract category from URL patterns
       // Examples: /categoria/-celulares, /category/electronics, etc.
       const categoryMatch = pathname.match(/\/categor[iy]a?\/[-_]?([^\/]+)/i);
@@ -43,7 +43,7 @@ export class ProductProcessor {
           .replace(/[^a-z0-9_-]/gi, '_') // Replace special chars with underscore
           .toLowerCase();
       }
-      
+
       // Fallback: use last segment of path
       const segments = pathname.split('/').filter(s => s.length > 0);
       if (segments.length > 0) {
@@ -51,7 +51,7 @@ export class ProductProcessor {
           .replace(/[^a-z0-9_-]/gi, '_')
           .toLowerCase();
       }
-      
+
       return 'produtos';
     } catch (error) {
       return 'produtos';
@@ -67,7 +67,7 @@ export class ProductProcessor {
           const size = parseInt(response.headers['content-length'] || '0', 10);
           resolve(size);
         });
-        
+
         request.on('error', () => resolve(0));
         request.setTimeout(5000, () => {
           request.destroy();
@@ -121,7 +121,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
 
       const data = await response.json();
       const generatedDescription = data.choices?.[0]?.message?.content?.trim();
-      
+
       if (!generatedDescription) {
         throw new Error('No description generated');
       }
@@ -165,17 +165,17 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       // Determine starting point
       let startIndex = 0;
       let existingProducts: string[] = [];
-      
+
       if (isResume && job.canResume) {
         startIndex = job.lastProductIndex;
         existingProducts = job.products
           .filter((p) => p.originalUrl !== null)
           .map((p) => p.originalUrl as string);
         console.log(`[${jobId}] Retomando do produto ${startIndex + 1}`);
-        
+
         await this.prisma.scrapeJob.update({
           where: { id: jobId },
-          data: { 
+          data: {
             status: 'processing',
             currentProduct: `Retomando do produto ${startIndex + 1}...`
           }
@@ -184,7 +184,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         // Update job status to processing and save category name
         await this.prisma.scrapeJob.update({
           where: { id: jobId },
-          data: { 
+          data: {
             status: 'processing',
             categoryName: categoryName,
             currentProduct: 'Inicializando scraper...',
@@ -199,7 +199,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       // Update status to discovering
       await this.prisma.scrapeJob.update({
         where: { id: jobId },
-        data: { 
+        data: {
           status: 'discovering',
           currentProduct: 'Descobrindo produtos página 1...',
           currentPage: 1
@@ -217,7 +217,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       // Process products page by page using streaming
       for await (const pageData of this.scraper.getProductLinksStreaming(job.url)) {
         const { pageNumber, productLinks: pageProducts, hasNextPage, totalDiscovered: discoveredSoFar } = pageData;
-        
+
         totalDiscovered = discoveredSoFar;
         allProductLinks.push(...pageProducts);
 
@@ -229,7 +229,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
           data: {
             currentPage: pageNumber,
             discoveredProducts: totalDiscovered,
-            currentProduct: hasNextPage 
+            currentProduct: hasNextPage
               ? `Descobrindo produtos página ${pageNumber}... (${totalDiscovered} produtos encontrados)`
               : `Descoberta concluída: ${totalDiscovered} produtos encontrados. Iniciando processamento...`
           }
@@ -237,36 +237,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
 
         // If URL-only mode, just collect URLs
         if (urlOnlyMode) {
-          // If last page, generate Excel
-          if (!hasNextPage) {
-            console.log(`[${jobId}] Modo URL-only: gerando Excel com ${allProductLinks.length} URLs...`);
-            
-            const productsData = allProductLinks.map((url, index) => ({
-              '#': index + 1,
-              'URL do Produto': url,
-              'Categoria': categoryName || 'Sem categoria'
-            }));
-            
-            const excelBuffer = generateExcelBuffer(productsData, categoryName || 'Produtos');
-            
-            await this.prisma.scrapeJob.update({
-              where: { id: jobId },
-              data: {
-                status: 'completed',
-                totalProducts: allProductLinks.length,
-                processedProducts: allProductLinks.length,
-                progress: 100,
-                excelData: excelBuffer,
-                completedAt: new Date(),
-                currentProduct: `Excel gerado com ${allProductLinks.length} URLs`
-              }
-            });
-            
-            await this.scraper.close();
-            console.log(`[${jobId}] Excel gerado com sucesso (${excelBuffer.length} bytes)`);
-            return;
-          }
-          // Continue to next page
+          // Skip detailed processing, just continue to next page (accumulation happens at top of loop)
           continue;
         }
 
@@ -286,7 +257,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         // Process each product from current page
         for (const [localIndex, productUrl] of pageProducts.entries()) {
           const globalIndex = allProductLinks.indexOf(productUrl);
-          
+
           try {
             // Skip products before startIndex when resuming
             if (globalIndex < startIndex) {
@@ -313,140 +284,140 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
 
             await this.prisma.scrapeJob.update({
               where: { id: jobId },
-              data: { 
+              data: {
                 currentProduct: `Processando produto ${globalIndex + 1} de ${totalDiscovered}...`,
                 totalProducts: totalDiscovered // Update total as we discover more
               }
             });
 
-          // Scrape product info with timeout protection
-          const productInfo = await Promise.race([
-            this.scraper.scrapeProduct(productUrl),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)) // 60s timeout per product
-          ]);
-          
-          if (!productInfo) {
-            console.log(`[${jobId}] Produto ${globalIndex + 1} ignorado (timeout ou sem dados)`);
-            continue;
-          }
+            // Scrape product info with timeout protection
+            const productInfo = await Promise.race([
+              this.scraper.scrapeProduct(productUrl),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 60000)) // 60s timeout per product
+            ]);
 
-          // Create product record
-          const folderName = sanitizeFileName(productInfo.name);
-          const productRecord = await this.prisma.product.create({
-            data: {
-              jobId: jobId,
-              name: productInfo.name,
-              description: productInfo.description,
-              price: productInfo.price,
-              originalUrl: productInfo.url,
-              folderName: folderName,
-              status: 'processing'
-            }
-          });
-
-          // Create product folder
-          const productDir = path.join(tempDir, folderName);
-          ensureDirectoryExists(productDir);
-
-          // Filter and download images (only reasonable quality images)
-          const imagePaths: string[] = [];
-          const minImageSize = 10 * 1024; // 10KB minimum (blocks thumbnails/icons but allows normal product images)
-          const maxImages = 8; // Maximum 8 images per product
-          let downloadedCount = 0;
-
-          for (const imageUrl of productInfo.images) {
-            if (downloadedCount >= maxImages) {
-              break;
+            if (!productInfo) {
+              console.log(`[${jobId}] Produto ${globalIndex + 1} ignorado (timeout ou sem dados)`);
+              continue;
             }
 
-            // Check image size before downloading
-            const imageSize = await this.getImageSize(imageUrl);
-            
-            // Only download if image is reasonable size (>10KB) or if we don't know the size
-            if (imageSize === 0 || imageSize >= minImageSize) {
-              const extension = getFileExtension(imageUrl);
-              const imageName = `imagem_${downloadedCount + 1}${extension}`;
-              const imagePath = path.join(productDir, imageName);
-
-              const success = await downloadImage(imageUrl, imagePath);
-              if (success) {
-                imagePaths.push(imageName);
-                downloadedCount++;
-                console.log(`Downloaded image ${downloadedCount}/${maxImages} (${imageSize > 0 ? Math.round(imageSize / 1024) + 'KB' : 'unknown size'}) for ${productInfo.name}`);
-              }
-            } else {
-              console.log(`Skipped small image (${Math.round(imageSize / 1024)}KB) for ${productInfo.name}`);
-            }
-          }
-
-          // Generate AI description in Portuguese
-          const aiDescription = await this.generateDescription(productInfo);
-
-          // Save AI-generated description
-          const descriptionPath = path.join(productDir, 'descricao.txt');
-          fs.writeFileSync(descriptionPath, aiDescription, 'utf8');
-
-          // Save info
-          const infoContent = [
-            `Nome: ${productInfo.name}`,
-            `Preço: ${productInfo.price || 'Não disponível'}`,
-            `URL Original: ${productInfo.url}`,
-            `Imagens Baixadas: ${imagePaths.length}`,
-            `Data de Extração: ${new Date().toLocaleString('pt-BR')}`
-          ].join('\n');
-
-          const infoPath = path.join(productDir, 'info.txt');
-          fs.writeFileSync(infoPath, infoContent, 'utf8');
-
-          // Update product as completed
-          await this.prisma.product.update({
-            where: { id: productRecord.id },
-            data: {
-              imagePaths: imagePaths,
-              status: 'completed',
-              completedAt: new Date()
-            }
-          });
-
-          // Send product to Banco de Produtos if enabled
-          if (saveToDatabase) {
-            try {
-              // Build full image paths with absolute paths
-              const fullImagePaths = imagePaths.map(img => {
-                const fullPath = path.join(productDir, img);
-                console.log(`[Banco] Verificando imagem: ${fullPath}`);
-                console.log(`[Banco] Arquivo existe: ${fs.existsSync(fullPath)}`);
-                return fullPath;
-              });
-              
-              console.log(`[${jobId}] 📤 Enviando produto "${productInfo.name}" ao Banco com ${fullImagePaths.length} imagens`);
-              
-              const bancoResult = await sendProductToBanco({
+            // Create product record
+            const folderName = sanitizeFileName(productInfo.name);
+            const productRecord = await this.prisma.product.create({
+              data: {
+                jobId: jobId,
                 name: productInfo.name,
-                description: aiDescription, // Use AI-generated description
+                description: productInfo.description,
                 price: productInfo.price,
-                category: categoryName,
-                urlOriginal: productInfo.url,
-                imagePaths: fullImagePaths
-              });
-
-              if (bancoResult.success) {
-                console.log(`[${jobId}] ✅ Produto "${productInfo.name}" enviado ao Banco com sucesso`);
-              } else {
-                console.log(`[${jobId}] ⚠️ Falha ao enviar "${productInfo.name}" ao Banco: ${bancoResult.error || bancoResult.message}`);
+                originalUrl: productInfo.url,
+                folderName: folderName,
+                status: 'processing'
               }
-            } catch (bancoError) {
-              console.error(`[${jobId}] ❌ Erro ao enviar produto ao Banco:`, bancoError);
-              // Continue processing even if Banco save fails
+            });
+
+            // Create product folder
+            const productDir = path.join(tempDir, folderName);
+            ensureDirectoryExists(productDir);
+
+            // Filter and download images (only reasonable quality images)
+            const imagePaths: string[] = [];
+            const minImageSize = 10 * 1024; // 10KB minimum (blocks thumbnails/icons but allows normal product images)
+            const maxImages = 8; // Maximum 8 images per product
+            let downloadedCount = 0;
+
+            for (const imageUrl of productInfo.images) {
+              if (downloadedCount >= maxImages) {
+                break;
+              }
+
+              // Check image size before downloading
+              const imageSize = await this.getImageSize(imageUrl);
+
+              // Only download if image is reasonable size (>10KB) or if we don't know the size
+              if (imageSize === 0 || imageSize >= minImageSize) {
+                const extension = getFileExtension(imageUrl);
+                const imageName = `imagem_${downloadedCount + 1}${extension}`;
+                const imagePath = path.join(productDir, imageName);
+
+                const success = await downloadImage(imageUrl, imagePath);
+                if (success) {
+                  imagePaths.push(imageName);
+                  downloadedCount++;
+                  console.log(`Downloaded image ${downloadedCount}/${maxImages} (${imageSize > 0 ? Math.round(imageSize / 1024) + 'KB' : 'unknown size'}) for ${productInfo.name}`);
+                }
+              } else {
+                console.log(`Skipped small image (${Math.round(imageSize / 1024)}KB) for ${productInfo.name}`);
+              }
             }
-          }
+
+            // Generate AI description in Portuguese
+            const aiDescription = await this.generateDescription(productInfo);
+
+            // Save AI-generated description
+            const descriptionPath = path.join(productDir, 'descricao.txt');
+            fs.writeFileSync(descriptionPath, aiDescription, 'utf8');
+
+            // Save info
+            const infoContent = [
+              `Nome: ${productInfo.name}`,
+              `Preço: ${productInfo.price || 'Não disponível'}`,
+              `URL Original: ${productInfo.url}`,
+              `Imagens Baixadas: ${imagePaths.length}`,
+              `Data de Extração: ${new Date().toLocaleString('pt-BR')}`
+            ].join('\n');
+
+            const infoPath = path.join(productDir, 'info.txt');
+            fs.writeFileSync(infoPath, infoContent, 'utf8');
+
+            // Update product as completed
+            await this.prisma.product.update({
+              where: { id: productRecord.id },
+              data: {
+                imagePaths: imagePaths,
+                status: 'completed',
+                completedAt: new Date()
+              }
+            });
+
+            // Send product to Banco de Produtos if enabled
+            if (saveToDatabase) {
+              try {
+                // Build full image paths with absolute paths
+                const fullImagePaths = imagePaths.map(img => {
+                  const fullPath = path.join(productDir, img);
+                  console.log(`[Banco] Verificando imagem: ${fullPath}`);
+                  console.log(`[Banco] Arquivo existe: ${fs.existsSync(fullPath)}`);
+                  return fullPath;
+                });
+
+                console.log(`[${jobId}] 📤 Enviando produto "${productInfo.name}" ao Banco com ${fullImagePaths.length} imagens`);
+
+                const bancoResult = await sendProductToBanco({
+                  name: productInfo.name,
+                  description: aiDescription, // Use AI-generated description
+                  price: productInfo.price,
+                  category: categoryName,
+                  urlOriginal: productInfo.url,
+                  imagePaths: fullImagePaths
+                });
+
+                if (bancoResult.success) {
+                  console.log(`[${jobId}] ✅ Produto "${productInfo.name}" enviado ao Banco com sucesso`);
+                } else {
+                  console.log(`[${jobId}] ⚠️ Falha ao enviar "${productInfo.name}" ao Banco: ${bancoResult.error || bancoResult.message}`);
+                }
+              } catch (bancoError) {
+                console.error(`[${jobId}] ❌ Erro ao enviar produto ao Banco:`, bancoError);
+                // Continue processing even if Banco save fails
+              }
+            }
 
             processedCount++;
 
             // Update job progress
             await this.prisma.scrapeJob.update({
               where: { id: jobId },
-              data: { 
+              data: {
                 processedProducts: processedCount,
                 progress: Math.round((processedCount / totalDiscovered) * 100)
               }
@@ -466,6 +437,36 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         console.log(`[${jobId}] Página ${pageNumber} processada: ${processedCount}/${totalDiscovered} produtos totais`);
 
       } // End of page streaming loop
+
+      // URL-only mode: Generate Excel and finish
+      if (urlOnlyMode) {
+        console.log(`[${jobId}] Modo URL-only: gerando Excel com ${allProductLinks.length} URLs...`);
+
+        const productsData = allProductLinks.map((url, index) => ({
+          '#': index + 1,
+          'URL do Produto': url,
+          'Categoria': categoryName || 'Sem categoria'
+        }));
+
+        const excelBuffer = generateExcelBuffer(productsData, categoryName || 'Produtos');
+
+        await this.prisma.scrapeJob.update({
+          where: { id: jobId },
+          data: {
+            status: 'completed',
+            totalProducts: allProductLinks.length,
+            processedProducts: allProductLinks.length,
+            progress: 100,
+            excelData: excelBuffer,
+            completedAt: new Date(),
+            currentProduct: `Excel gerado com ${allProductLinks.length} URLs`
+          }
+        });
+
+        await this.scraper.close();
+        console.log(`[${jobId}] Excel gerado com sucesso (${excelBuffer.length} bytes)`);
+        return;
+      }
 
       console.log(`[${jobId}] Processamento concluído: ${processedCount}/${totalDiscovered} produtos extraídos com sucesso`);
 
@@ -506,30 +507,30 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
 
     } catch (error) {
       console.error(`[${jobId}] Erro ao processar job:`, error);
-      
+
       // Check if we have any progress to allow resume
       const currentJob = await this.prisma.scrapeJob.findUnique({
         where: { id: jobId }
       });
-      
+
       const hasProgress = currentJob && currentJob.processedProducts > 0;
-      
+
       // Update job as paused if we have progress, failed otherwise
       const updateData: any = {
         status: hasProgress ? 'paused' : 'failed',
         errorMessage: error instanceof Error ? error.message : 'Erro desconhecido',
         canResume: hasProgress
       };
-      
+
       if (!hasProgress) {
         updateData.completedAt = new Date();
       }
-      
+
       await this.prisma.scrapeJob.update({
         where: { id: jobId },
         data: updateData
       });
-      
+
       if (hasProgress) {
         console.log(`[${jobId}] Job pausado. ${currentJob.processedProducts} produtos salvos. Use 'Retomar' para continuar.`);
       }
@@ -551,13 +552,13 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       archive.on('error', reject);
 
       archive.pipe(output);
-      
+
       // Add all directories except the zip file itself
       const items = fs.readdirSync(sourceDir);
       for (const item of items) {
         const itemPath = path.join(sourceDir, item);
         const stat = fs.statSync(itemPath);
-        
+
         if (stat.isDirectory()) {
           archive.directory(itemPath, item);
         }
