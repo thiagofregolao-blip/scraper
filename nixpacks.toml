@@ -1,0 +1,13 @@
+providers = ["node"]
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["cd nextjs_space && npm install"]
+
+[phases.build]
+cmds = ["cd nextjs_space && npx prisma generate", "cd nextjs_space && npm run build"]
+
+[start]
+cmd = "cd nextjs_space && npx prisma db push && npm run start"
