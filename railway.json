@@ -4,7 +4,7 @@
         "builder": "NIXPACKS",
         "buildCommand": "npm install && npx prisma generate && npx prisma db push && npm run build",
         "watchPatterns": [
-            "nextjs_space/**"
+            "./**"
         ]
     },
     "deploy": {
