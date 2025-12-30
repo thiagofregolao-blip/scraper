@@ -570,4 +570,4 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
   async cleanup(): Promise<void> {
     await this.prisma.$disconnect();
   }
-}
+}// Force rebuild Tue Dec 30 14:53:06 -03 2025
