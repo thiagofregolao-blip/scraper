@@ -118,7 +118,7 @@ export class UniversalScraper {
   }
 
   private async waitForCloudflareToClear(page: Page): Promise<void> {
-    const timeoutMs = 45000;
+    const timeoutMs = 120000;
     try {
       await page.waitForFunction(
         () => {
@@ -141,7 +141,15 @@ export class UniversalScraper {
         { timeout: timeoutMs, polling: 500 }
       );
     } catch {
-      console.log(`⚠️ Cloudflare ainda ativo após ${timeoutMs}ms. Continuando mesmo assim...`);
+      const title = ((await page.title().catch(() => '')) || '').toLowerCase();
+      if (
+        title.includes('just a moment') ||
+        title.includes('um momento') ||
+        title.includes('attention required')
+      ) {
+        throw new Error(`Cloudflare ainda bloqueando após ${timeoutMs}ms (title="${title}")`);
+      }
+      console.log(`⚠️ Cloudflare check timeout (${timeoutMs}ms), mas o título já não parece challenge. Continuando...`);
     }
   }
 
@@ -157,7 +165,9 @@ export class UniversalScraper {
       .catch(() => undefined);
 
     if (url.includes('/categoria/')) {
-      await page.waitForSelector('a[href*="/produto/"]', { timeout: 45000 }).catch(() => undefined);
+      await page
+        .waitForSelector('a[href*="/produto/"], a[href*="produto/"]', { timeout: 120000 })
+        .catch(() => undefined);
     } else {
       // Em páginas de produto, um pequeno delay ajuda a estabilizar antes de capturar o HTML
       await new Promise(resolve => setTimeout(resolve, 1500));
@@ -170,7 +180,7 @@ export class UniversalScraper {
     const hostname = new URL(url).hostname;
     const page = await this.getPuppeteerPage();
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    for (let attempt = 1; attempt <= 3; attempt++) {
       // 1) Navega (domcontentloaded costuma ser mais estável que networkidle2 em sites com JS/chat/widgets)
       try {
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
@@ -185,14 +195,34 @@ export class UniversalScraper {
       // 3) Heurísticas por site (LG Importados) para garantir que o conteúdo real apareceu
       await this.waitForLgImportadosReady(page, url, hostname);
 
+      // Logs úteis (Railway) + checagem objetiva por domínio
+      const title = await page.title().catch(() => '');
+      const currentUrl = page.url();
+      let lgLinksCount = 0;
+      if (hostname.toLowerCase().includes('lgimportados.com') && url.includes('/categoria/')) {
+        lgLinksCount = await page
+          .$eval(
+            'body',
+            () => document.querySelectorAll('a[href*="/produto/"], a[href*="produto/"]').length
+          )
+          .catch(() => 0);
+        console.log(`[Puppeteer][LG] title="${title}" url="${currentUrl}" links_produto=${lgLinksCount}`);
+      } else {
+        console.log(`[Puppeteer] title="${title}" url="${currentUrl}"`);
+      }
+
       const html = await page.content();
-      if (!this.looksLikeCloudflareHtml(html)) {
+      // Em LG Importados, o sinal mais confiável é ter links de produto na categoria.
+      if (
+        (hostname.toLowerCase().includes('lgimportados.com') && url.includes('/categoria/') && lgLinksCount > 0) ||
+        (!hostname.toLowerCase().includes('lgimportados.com') && !this.looksLikeCloudflareHtml(html))
+      ) {
         console.log(`✅ Puppeteer successfully fetched ${html.length} bytes`);
         return html;
       }
 
-      console.log(`⚠️ Ainda parece Cloudflare (tentativa ${attempt}/2). Aguardando e tentando novamente...`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      console.log(`⚠️ Ainda sem conteúdo real (tentativa ${attempt}/3). Aguardando e tentando novamente...`);
+      await new Promise(resolve => setTimeout(resolve, 8000));
     }
 
     const finalHtml = await page.content();
@@ -229,11 +259,14 @@ export class UniversalScraper {
       } 
       // LG IMPORTADOS específico
       else if (domain.includes('lgimportados.com')) {
-        $('.product-card a, .product-link, [class*="product"] a').each((_, el) => {
+        $('a[href*="/produto/"], a[href*="produto/"]').each((_, el) => {
           const href = $(el).attr('href');
-          if (href && (href.includes('produto/') || href.includes('/produto/'))) {
-            const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
-            allProductLinks.add(fullUrl);
+          if (!href) return;
+          try {
+            const fullUrl = new URL(href, baseUrl).toString();
+            if (fullUrl.includes(domain)) allProductLinks.add(fullUrl);
+          } catch {
+            // ignore
           }
         });
       }
@@ -301,9 +334,11 @@ export class UniversalScraper {
         // LG Importados tem 3 elementos de paginação separados
         // Procurar especificamente pelo link com "Próx." no texto
         let foundNext = false;
-        $('.pagination a').each((_, el) => {
-          const text = $(el).text().trim();
-          if (text.includes('Próx') || text.includes('Next')) {
+        $('a').each((_, el) => {
+          const text = ($(el).text() || '').trim();
+          const aria = ($(el).attr('aria-label') || '').trim();
+          const combined = `${text} ${aria}`.toLowerCase();
+          if (combined.includes('próx') || combined.includes('prox') || combined.includes('next')) {
             nextPageUrl = $(el).attr('href') || null;
             foundNext = true;
             return false; // break
@@ -316,7 +351,7 @@ export class UniversalScraper {
           const currentPage = currentMatch ? parseInt(currentMatch[1]) : 1;
           const nextPage = currentPage + 1;
           
-          $('.pagination a[href*="pagina"]').each((_, el) => {
+          $('a[href*="pagina"]').each((_, el) => {
             const href = $(el).attr('href');
             if (href && href.includes(`pagina${nextPage}`)) {
               nextPageUrl = href;
@@ -345,12 +380,10 @@ export class UniversalScraper {
       }
 
       if (nextPageUrl) {
-        if (nextPageUrl.startsWith('http')) {
-          // Já é URL completa
-        } else if (nextPageUrl.startsWith('/')) {
-          nextPageUrl = `${baseUrl}${nextPageUrl}`;
-        } else {
-          nextPageUrl = `${baseUrl}/${nextPageUrl}`;
+        try {
+          nextPageUrl = new URL(nextPageUrl, baseUrl).toString();
+        } catch {
+          // ignore
         }
       }
 
@@ -565,14 +598,17 @@ export class UniversalScraper {
         } 
         // LG IMPORTADOS específico
         else if (domain.includes('lgimportados.com')) {
-          $('.product-card a, .product-link, [class*="product"] a').each((_, el) => {
+          $('a[href*="/produto/"], a[href*="produto/"]').each((_, el) => {
             const href = $(el).attr('href');
-            if (href && (href.includes('produto/') || href.includes('/produto/'))) {
-              const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
-              if (!allProductLinks.has(fullUrl)) {
+            if (!href) return;
+            try {
+              const fullUrl = new URL(href, baseUrl).toString();
+              if (fullUrl.includes(domain) && !allProductLinks.has(fullUrl)) {
                 allProductLinks.add(fullUrl);
                 currentPageProducts.push(fullUrl);
               }
+            } catch {
+              // ignore
             }
           });
         }
@@ -638,9 +674,11 @@ export class UniversalScraper {
           nextPageUrl = nextBtn.attr('href') || null;
         } else if (domain.includes('lgimportados.com')) {
           let foundNext = false;
-          $('.pagination a').each((_, el) => {
-            const text = $(el).text().trim();
-            if (text.includes('Próx') || text.includes('Next')) {
+          $('a').each((_, el) => {
+            const text = ($(el).text() || '').trim();
+            const aria = ($(el).attr('aria-label') || '').trim();
+            const combined = `${text} ${aria}`.toLowerCase();
+            if (combined.includes('próx') || combined.includes('prox') || combined.includes('next')) {
               nextPageUrl = $(el).attr('href') || null;
               foundNext = true;
               return false;
@@ -651,7 +689,20 @@ export class UniversalScraper {
             const currentMatch = currentUrl.match(/pagina(\d+)/);
             const currentPage = currentMatch ? parseInt(currentMatch[1]) : 1;
             const nextPage = currentPage + 1;
-            nextPageUrl = currentUrl.replace(/pagina\d+/, `pagina${nextPage}`);
+            $('a[href*="pagina"]').each((_, el) => {
+              const href = $(el).attr('href');
+              if (href && href.includes(`pagina${nextPage}`)) {
+                nextPageUrl = href;
+                return false;
+              }
+            });
+
+            // Último fallback: tentar construir URL de próxima página
+            if (!nextPageUrl) {
+              nextPageUrl = currentUrl.includes('pagina')
+                ? currentUrl.replace(/pagina\d+/, `pagina${nextPage}`)
+                : `${currentUrl.replace(/\/$/, '')}/pagina${nextPage}`;
+            }
           }
         } else if (domain.includes('cellshop.com')) {
           const nextBtn = $('a.next-page, [class*="next"], .pagination a[rel="next"]').first();
@@ -678,7 +729,9 @@ export class UniversalScraper {
         }
 
         // Preparar próxima URL
-        currentUrl = nextPageUrl.startsWith('http') ? nextPageUrl : `${baseUrl}${nextPageUrl}`;
+        currentUrl = nextPageUrl.startsWith('http')
+          ? nextPageUrl
+          : new URL(nextPageUrl, baseUrl).toString();
         pageNum++;
 
         // Delay entre páginas
