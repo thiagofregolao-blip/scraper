@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { isValidUrl } from './utils';
-import puppeteer from 'puppeteer';
+import puppeteer, { type Browser, type Page } from 'puppeteer';
 
 export interface ProductInfo {
   name: string;
@@ -14,8 +14,8 @@ export interface ProductInfo {
 export class UniversalScraper {
   private userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   private maxProducts: number = 10000; // Limite máximo de produtos
-  private browser: puppeteer.Browser | null = null;
-  private page: puppeteer.Page | null = null;
+  private browser: Browser | null = null;
+  private page: Page | null = null;
   private forcePuppeteerDomains = new Set<string>();
 
   async initialize(maxProducts?: number): Promise<void> {
@@ -77,7 +77,7 @@ export class UniversalScraper {
     }
   }
 
-  private async getPuppeteerPage(): Promise<puppeteer.Page> {
+  private async getPuppeteerPage(): Promise<Page> {
     if (this.page) {
       return this.page;
     }
@@ -117,7 +117,7 @@ export class UniversalScraper {
     return this.page;
   }
 
-  private async waitForCloudflareToClear(page: puppeteer.Page): Promise<void> {
+  private async waitForCloudflareToClear(page: Page): Promise<void> {
     const timeoutMs = 45000;
     try {
       await page.waitForFunction(
@@ -145,7 +145,7 @@ export class UniversalScraper {
     }
   }
 
-  private async waitForLgImportadosReady(page: puppeteer.Page, url: string, hostname: string): Promise<void> {
+  private async waitForLgImportadosReady(page: Page, url: string, hostname: string): Promise<void> {
     if (!hostname.toLowerCase().includes('lgimportados.com')) {
       return;
     }
