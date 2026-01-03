@@ -1,6 +1,6 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { extractDomain, isValidUrl } from './utils';
+import { isValidUrl } from './utils';
 import puppeteer from 'puppeteer';
 
 export interface ProductInfo {
@@ -14,17 +14,39 @@ export interface ProductInfo {
 export class UniversalScraper {
   private userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   private maxProducts: number = 10000; // Limite máximo de produtos
+  private browser: puppeteer.Browser | null = null;
+  private page: puppeteer.Page | null = null;
+  private forcePuppeteerDomains = new Set<string>();
 
   async initialize(maxProducts?: number): Promise<void> {
     if (maxProducts) {
       this.maxProducts = maxProducts;
     }
-    console.log(`Scraper inicializado (usando Cheerio - sem navegador, limite: ${this.maxProducts} produtos)`);
+    console.log(`Scraper inicializado (Cheerio + fallback Puppeteer, limite: ${this.maxProducts} produtos)`);
+  }
+
+  private looksLikeCloudflareHtml(html: string): boolean {
+    const lowerHtml = html.toLowerCase();
+    return (
+      lowerHtml.includes('just a moment') ||
+      lowerHtml.includes('um momento') ||
+      lowerHtml.includes('cf-chl') ||
+      lowerHtml.includes('challenge-platform') ||
+      lowerHtml.includes('/cdn-cgi/') ||
+      (lowerHtml.includes('cloudflare') && lowerHtml.includes('attention required'))
+    );
   }
 
   private async fetchHTML(url: string): Promise<string> {
     console.log(`Fetching: ${url}`);
+    const hostname = new URL(url).hostname;
+    const lowerHostname = hostname.toLowerCase();
 
+    // Se já detectamos que o domínio exige navegador (ex: Cloudflare), pule o Axios.
+    if (this.forcePuppeteerDomains.has(lowerHostname)) {
+      return await this.fetchWithPuppeteer(url);
+    }
+    
     try {
       // Primeiro tenta com Axios (método rápido)
       const response = await axios.get(url, {
@@ -35,58 +57,147 @@ export class UniversalScraper {
         },
         timeout: 30000,
       });
-
-      const html = response.data;
-
+      
+      const html = typeof response.data === 'string' ? response.data : String(response.data);
+      
       // Detecta Cloudflare protection
-      if (html.includes('Just a moment') || html.includes('cf-chl-opt') || html.includes('challenge-platform')) {
+      const looksLikeCloudflare = this.looksLikeCloudflareHtml(html);
+
+      if (looksLikeCloudflare) {
         console.log('⚠️ Cloudflare detected, switching to Puppeteer...');
+        this.forcePuppeteerDomains.add(lowerHostname);
         return await this.fetchWithPuppeteer(url);
       }
-
+      
       return html;
     } catch (error) {
       console.error(`Axios failed, trying Puppeteer: ${error}`);
+      this.forcePuppeteerDomains.add(lowerHostname);
       return await this.fetchWithPuppeteer(url);
+    }
+  }
+
+  private async getPuppeteerPage(): Promise<puppeteer.Page> {
+    if (this.page) {
+      return this.page;
+    }
+
+    if (!this.browser) {
+      this.browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-blink-features=AutomationControlled'
+        ]
+      });
+    }
+
+    this.page = await this.browser.newPage();
+    await this.page.setUserAgent(this.userAgent);
+    await this.page.setExtraHTTPHeaders({
+      'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7,es;q=0.6'
+    });
+    await this.page.setViewport({ width: 1365, height: 768 });
+
+    // Pequena medida anti-bot (não é "stealth", mas ajuda em alguns casos)
+    try {
+      await this.page.evaluateOnNewDocument(() => {
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      });
+    } catch {
+      // ignore
+    }
+
+    return this.page;
+  }
+
+  private async waitForCloudflareToClear(page: puppeteer.Page): Promise<void> {
+    const timeoutMs = 45000;
+    try {
+      await page.waitForFunction(
+        () => {
+          const title = (document.title || '').toLowerCase();
+          const href = (location.href || '').toLowerCase();
+
+          const isChallengeTitle =
+            title.includes('just a moment') ||
+            title.includes('um momento') ||
+            title.includes('attention required');
+
+          const isChallengePath =
+            href.includes('/cdn-cgi/') ||
+            href.includes('challenge-platform');
+
+          const hasChallengeForm = !!document.querySelector('#challenge-form');
+
+          return !(isChallengeTitle || isChallengePath || hasChallengeForm);
+        },
+        { timeout: timeoutMs, polling: 500 }
+      );
+    } catch {
+      console.log(`⚠️ Cloudflare ainda ativo após ${timeoutMs}ms. Continuando mesmo assim...`);
+    }
+  }
+
+  private async waitForLgImportadosReady(page: puppeteer.Page, url: string, hostname: string): Promise<void> {
+    if (!hostname.toLowerCase().includes('lgimportados.com')) {
+      return;
+    }
+
+    // Garantir que já saímos do desafio e que o HTML "real" carregou.
+    // O site usa breadcrumb e links /produto/ nas páginas de categoria.
+    await page
+      .waitForSelector('nav[aria-label="breadcrumb"], [aria-label="breadcrumb"]', { timeout: 45000 })
+      .catch(() => undefined);
+
+    if (url.includes('/categoria/')) {
+      await page.waitForSelector('a[href*="/produto/"]', { timeout: 45000 }).catch(() => undefined);
+    } else {
+      // Em páginas de produto, um pequeno delay ajuda a estabilizar antes de capturar o HTML
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
   }
 
   private async fetchWithPuppeteer(url: string): Promise<string> {
     console.log(`🤖 Using Puppeteer for: ${url}`);
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
-    });
+    const hostname = new URL(url).hostname;
+    const page = await this.getPuppeteerPage();
 
-    try {
-      const page = await browser.newPage();
-      await page.setUserAgent(this.userAgent);
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      // 1) Navega (domcontentloaded costuma ser mais estável que networkidle2 em sites com JS/chat/widgets)
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+      } catch (error) {
+        console.log(`[Puppeteer] goto(domcontentloaded) falhou, tentando networkidle2...`);
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+      }
 
-      // Navega e espera pelo conteúdo
-      await page.goto(url, {
-        waitUntil: 'networkidle2',
-        timeout: 60000
-      });
+      // 2) Se for Cloudflare "Um momento…", aguardar liberar a navegação
+      await this.waitForCloudflareToClear(page);
 
-      // Espera adicional para Cloudflare challenge
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // 3) Heurísticas por site (LG Importados) para garantir que o conteúdo real apareceu
+      await this.waitForLgImportadosReady(page, url, hostname);
 
       const html = await page.content();
-      console.log(`✅ Puppeteer successfully fetched ${html.length} bytes`);
+      if (!this.looksLikeCloudflareHtml(html)) {
+        console.log(`✅ Puppeteer successfully fetched ${html.length} bytes`);
+        return html;
+      }
 
-      return html;
-    } finally {
-      await browser.close();
+      console.log(`⚠️ Ainda parece Cloudflare (tentativa ${attempt}/2). Aguardando e tentando novamente...`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
     }
+
+    const finalHtml = await page.content();
+    console.log(`✅ Puppeteer fetched ${finalHtml.length} bytes (possível Cloudflare)`);
+    return finalHtml;
   }
 
   async getProductLinks(categoryUrl: string): Promise<string[]> {
@@ -99,7 +210,7 @@ export class UniversalScraper {
 
     while (pageNum <= maxPages) {
       console.log(`Página ${pageNum}: ${currentUrl}`);
-
+      
       const html = await this.fetchHTML(currentUrl);
       const $ = cheerio.load(html);
 
@@ -115,7 +226,7 @@ export class UniversalScraper {
             allProductLinks.add(fullUrl);
           }
         });
-      }
+      } 
       // LG IMPORTADOS específico
       else if (domain.includes('lgimportados.com')) {
         $('.product-card a, .product-link, [class*="product"] a').each((_, el) => {
@@ -142,7 +253,7 @@ export class UniversalScraper {
           const href = $(el).attr('href');
           if (href) {
             // Filtros estritos: apenas links que parecem produtos
-            const isProductLink =
+            const isProductLink = 
               href.includes('/producto/') ||
               href.includes('/product/') ||
               (href.includes('/p/') && /\/p\/\d+/.test(href)) ||
@@ -198,13 +309,13 @@ export class UniversalScraper {
             return false; // break
           }
         });
-
+        
         // Fallback: procurar links com href contendo "pagina" e número maior
         if (!foundNext) {
           const currentMatch = currentUrl.match(/pagina(\d+)/);
           const currentPage = currentMatch ? parseInt(currentMatch[1]) : 1;
           const nextPage = currentPage + 1;
-
+          
           $('.pagination a[href*="pagina"]').each((_, el) => {
             const href = $(el).attr('href');
             if (href && href.includes(`pagina${nextPage}`)) {
@@ -221,7 +332,7 @@ export class UniversalScraper {
           foundNext = true;
           return false;
         });
-
+        
         if (!foundNext) {
           $('.pagination a, .paginacao a, [class*="paginat"] a').each((_, el) => {
             const text = $(el).text().trim().toLowerCase();
@@ -299,7 +410,7 @@ export class UniversalScraper {
       // Preço
       let price = '';
       const urlDomain = new URL(url).hostname;
-
+      
       // LG Importados: buscar Gs. no HTML inteiro
       if (urlDomain.includes('lgimportados.com')) {
         const bodyText = $('body').text();
@@ -383,13 +494,13 @@ export class UniversalScraper {
           if (src) {
             const fullUrl = src.startsWith('http') ? src : `${baseUrl}${src.startsWith('/') ? '' : '/'}${src}`;
             // Filtrar logos e ícones
-            const isValidImage =
+            const isValidImage = 
               !fullUrl.includes('logo') &&
               !fullUrl.includes('icon') &&
               !fullUrl.includes('banner') &&
               !fullUrl.includes('data:image') &&
               !images.includes(fullUrl);
-
+            
             if (isValidImage) {
               images.push(fullUrl);
             }
@@ -431,7 +542,7 @@ export class UniversalScraper {
 
     while (pageNum <= maxPages) {
       console.log(`[Streaming] Página ${pageNum}: ${currentUrl}`);
-
+      
       try {
         const html = await this.fetchHTML(currentUrl);
         const $ = cheerio.load(html);
@@ -451,7 +562,7 @@ export class UniversalScraper {
               }
             }
           });
-        }
+        } 
         // LG IMPORTADOS específico
         else if (domain.includes('lgimportados.com')) {
           $('.product-card a, .product-link, [class*="product"] a').each((_, el) => {
@@ -483,7 +594,7 @@ export class UniversalScraper {
           $('a').each((_, el) => {
             const href = $(el).attr('href');
             if (href) {
-              const isProductLink =
+              const isProductLink = 
                 href.includes('/producto/') ||
                 href.includes('/product/') ||
                 (href.includes('/p/') && /\/p\/\d+/.test(href)) ||
@@ -535,7 +646,7 @@ export class UniversalScraper {
               return false;
             }
           });
-
+          
           if (!foundNext) {
             const currentMatch = currentUrl.match(/pagina(\d+)/);
             const currentPage = currentMatch ? parseInt(currentMatch[1]) : 1;
@@ -567,13 +678,7 @@ export class UniversalScraper {
         }
 
         // Preparar próxima URL
-        if (nextPageUrl.startsWith('http')) {
-          currentUrl = nextPageUrl;
-        } else if (nextPageUrl.startsWith('/')) {
-          currentUrl = `${baseUrl}${nextPageUrl}`;
-        } else {
-          currentUrl = `${baseUrl}/${nextPageUrl}`;
-        }
+        currentUrl = nextPageUrl.startsWith('http') ? nextPageUrl : `${baseUrl}${nextPageUrl}`;
         pageNum++;
 
         // Delay entre páginas
@@ -589,7 +694,19 @@ export class UniversalScraper {
   }
 
   async close(): Promise<void> {
-    console.log('Scraper fechado');
+    try {
+      if (this.page) {
+        await this.page.close().catch(() => undefined);
+        this.page = null;
+      }
+
+      if (this.browser) {
+        await this.browser.close().catch(() => undefined);
+        this.browser = null;
+      }
+    } finally {
+      console.log('Scraper fechado');
+    }
   }
 }
 
@@ -606,7 +723,7 @@ export async function scrapeCategory(categoryUrl: string): Promise<ProductInfo[]
     for (let i = 0; i < Math.min(productLinks.length, 200); i++) {
       const link = productLinks[i];
       console.log(`Progresso: ${i + 1}/${Math.min(productLinks.length, 200)}`);
-
+      
       const product = await scraper.scrapeProduct(link);
       if (product) {
         products.push(product);
@@ -621,4 +738,3 @@ export async function scrapeCategory(categoryUrl: string): Promise<ProductInfo[]
     await scraper.close();
   }
 }
-// Build timestamp: 1767120129
