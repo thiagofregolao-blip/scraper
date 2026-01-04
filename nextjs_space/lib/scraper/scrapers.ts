@@ -2,16 +2,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { isValidUrl } from './utils';
 import { fetchHtmlWithFirecrawl } from './firecrawl';
-import puppeteer from 'puppeteer-extra';
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
-import type { Browser, Page } from 'puppeteer';
-
-let stealthEnabled = false;
-function enableStealth(): void {
-  if (stealthEnabled) return;
-  puppeteer.use(StealthPlugin());
-  stealthEnabled = true;
-}
+import puppeteer, { type Browser, type Page } from 'puppeteer';
 
 export interface ProductInfo {
   name: string;
@@ -149,10 +140,8 @@ export class UniversalScraper {
     }
 
     if (!this.browser) {
-      enableStealth();
       this.browser = await puppeteer.launch({
         headless: true,
-        ignoreDefaultArgs: ['--enable-automation'],
         userDataDir: process.env.PUPPETEER_USER_DATA_DIR || '/tmp/puppeteer-profile',
         args: [
           '--no-sandbox',
