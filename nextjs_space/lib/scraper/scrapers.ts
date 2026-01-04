@@ -1,6 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { isValidUrl } from './utils';
+import { fetchHtmlWithFirecrawl } from './firecrawl';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import type { Browser, Page } from 'puppeteer';
@@ -26,6 +27,7 @@ export class UniversalScraper {
   private browser: Browser | null = null;
   private page: Page | null = null;
   private forcePuppeteerDomains = new Set<string>();
+  private forceFirecrawlDomains = new Set<string>();
 
   async initialize(maxProducts?: number): Promise<void> {
     if (maxProducts) {
@@ -50,10 +52,42 @@ export class UniversalScraper {
     console.log(`Fetching: ${url}`);
     const hostname = new URL(url).hostname;
     const lowerHostname = hostname.toLowerCase();
+    const hasFirecrawl = !!process.env.FIRECRAWL_API_KEY;
+
+    // Preferir Firecrawl em domínios difíceis (ex: Cloudflare no Railway)
+    const shouldPreferFirecrawl =
+      hasFirecrawl && (this.forceFirecrawlDomains.has(lowerHostname) || lowerHostname.includes('lgimportados.com'));
+
+    if (shouldPreferFirecrawl) {
+      try {
+        const firecrawlHtml = await fetchHtmlWithFirecrawl(url, { formats: ['html'] });
+        if (firecrawlHtml && firecrawlHtml.includes('<')) {
+          console.log(`🔥 Firecrawl fetched ${firecrawlHtml.length} bytes`);
+          return firecrawlHtml;
+        }
+      } catch (error) {
+        console.log(
+          `⚠️ Firecrawl falhou para ${lowerHostname}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
 
     // Se já detectamos que o domínio exige navegador (ex: Cloudflare), pule o Axios.
     if (this.forcePuppeteerDomains.has(lowerHostname)) {
-      return await this.fetchWithPuppeteer(url);
+      try {
+        return await this.fetchWithPuppeteer(url);
+      } catch (error) {
+        // Se Puppeteer não passar (Cloudflare), tentar Firecrawl antes de falhar.
+        if (hasFirecrawl) {
+          this.forceFirecrawlDomains.add(lowerHostname);
+          const firecrawlHtml = await fetchHtmlWithFirecrawl(url, { formats: ['html'] }).catch(() => null);
+          if (firecrawlHtml && firecrawlHtml.includes('<')) {
+            console.log(`🔥 Firecrawl fetched ${firecrawlHtml.length} bytes (fallback de Puppeteer)`);
+            return firecrawlHtml;
+          }
+        }
+        throw error;
+      }
     }
     
     try {
@@ -73,7 +107,19 @@ export class UniversalScraper {
       const looksLikeCloudflare = this.looksLikeCloudflareHtml(html);
 
       if (looksLikeCloudflare) {
-        console.log('⚠️ Cloudflare detected, switching to Puppeteer...');
+        console.log('⚠️ Cloudflare detected.');
+        this.forceFirecrawlDomains.add(lowerHostname);
+
+        // Tenta Firecrawl primeiro (mais estável que headless em alguns ambientes)
+        if (hasFirecrawl) {
+          const firecrawlHtml = await fetchHtmlWithFirecrawl(url, { formats: ['html'] }).catch(() => null);
+          if (firecrawlHtml && firecrawlHtml.includes('<')) {
+            console.log(`🔥 Firecrawl fetched ${firecrawlHtml.length} bytes`);
+            return firecrawlHtml;
+          }
+        }
+
+        console.log('↪️ Fallback para Puppeteer...');
         this.forcePuppeteerDomains.add(lowerHostname);
         return await this.fetchWithPuppeteer(url);
       }
@@ -81,6 +127,17 @@ export class UniversalScraper {
       return html;
     } catch (error) {
       console.error(`Axios failed, trying Puppeteer: ${error}`);
+
+      // Tenta Firecrawl antes do Puppeteer (se disponível)
+      if (hasFirecrawl) {
+        this.forceFirecrawlDomains.add(lowerHostname);
+        const firecrawlHtml = await fetchHtmlWithFirecrawl(url, { formats: ['html'] }).catch(() => null);
+        if (firecrawlHtml && firecrawlHtml.includes('<')) {
+          console.log(`🔥 Firecrawl fetched ${firecrawlHtml.length} bytes`);
+          return firecrawlHtml;
+        }
+      }
+
       this.forcePuppeteerDomains.add(lowerHostname);
       return await this.fetchWithPuppeteer(url);
     }
