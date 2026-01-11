@@ -52,40 +52,26 @@ export class UniversalScraper {
   }
 
   private async fetchWithPuppeteer(url: string): Promise<string> {
-    console.log(`🤖 Using Puppeteer for: ${url}`);
+    console.log(`🌐 Using Scrape.do API for: ${url}`);
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu'
-      ]
-    });
+    const SCRAPE_DO_TOKEN = process.env.SCRAPE_DO_TOKEN || 'b36342f58b4448f58e8a81f14a3841f2968c9d9a36a';
+    const encodedUrl = encodeURIComponent(url);
+    const apiUrl = `https://api.scrape.do?token=${SCRAPE_DO_TOKEN}&url=${encodedUrl}&render=true`;
 
     try {
-      const page = await browser.newPage();
-      await page.setUserAgent(this.userAgent);
-
-      // Navega e espera pelo conteúdo
-      await page.goto(url, {
-        waitUntil: 'networkidle2',
-        timeout: 60000
+      const response = await axios.get(apiUrl, {
+        timeout: 120000, // 2 minutes timeout for JS rendering
+        headers: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        }
       });
 
-      // Espera adicional para Cloudflare challenge
-      await new Promise(resolve => setTimeout(resolve, 3000));
-
-      const html = await page.content();
-      console.log(`✅ Puppeteer successfully fetched ${html.length} bytes`);
-
+      const html = response.data;
+      console.log(`✅ Scrape.do successfully fetched ${html.length} bytes`);
       return html;
-    } finally {
-      await browser.close();
+    } catch (error: any) {
+      console.error(`❌ Scrape.do failed: ${error.message}`);
+      throw error;
     }
   }
 
