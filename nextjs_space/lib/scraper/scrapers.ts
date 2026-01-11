@@ -51,28 +51,62 @@ export class UniversalScraper {
     }
   }
 
-  private async fetchWithPuppeteer(url: string): Promise<string> {
-    console.log(`🌐 Using Scrape.do API for: ${url}`);
-
+  private async fetchWithScrapeDo(url: string, useRender: boolean = false): Promise<string> {
     const SCRAPE_DO_TOKEN = process.env.SCRAPE_DO_TOKEN || 'b36342f58b4448f58e8a81f14a3841f2968c9d9a36a';
     const encodedUrl = encodeURIComponent(url);
-    const apiUrl = `https://api.scrape.do?token=${SCRAPE_DO_TOKEN}&url=${encodedUrl}&render=true`;
+    const renderParam = useRender ? '&render=true' : '';
+    const apiUrl = `https://api.scrape.do?token=${SCRAPE_DO_TOKEN}&url=${encodedUrl}${renderParam}`;
 
+    const response = await axios.get(apiUrl, {
+      timeout: useRender ? 120000 : 60000,
+      headers: {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      }
+    });
+
+    return response.data;
+  }
+
+  private async fetchWithPuppeteer(url: string): Promise<string> {
+    const maxRetries = 3;
+    let lastError: any;
+
+    // Estratégia 1: Tenta SEM render (rápido ~2-5s)
+    console.log(`🚀 Scrape.do (fast mode): ${url}`);
     try {
-      const response = await axios.get(apiUrl, {
-        timeout: 120000, // 2 minutes timeout for JS rendering
-        headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        }
-      });
+      const html = await this.fetchWithScrapeDo(url, false);
 
-      const html = response.data;
-      console.log(`✅ Scrape.do successfully fetched ${html.length} bytes`);
-      return html;
+      // Verifica se pegou Cloudflare mesmo assim
+      if (html.includes('Just a moment') || html.includes('cf-chl-opt')) {
+        console.log('⚠️ Cloudflare ainda presente, tentando com render...');
+      } else {
+        console.log(`✅ Fast mode success: ${html.length} bytes`);
+        return html;
+      }
     } catch (error: any) {
-      console.error(`❌ Scrape.do failed: ${error.message}`);
-      throw error;
+      console.log(`⏩ Fast mode failed, trying render mode...`);
     }
+
+    // Estratégia 2: Tenta COM render (lento ~10-20s) com retry
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      console.log(`🌐 Scrape.do (render mode) attempt ${attempt}/${maxRetries}: ${url}`);
+      try {
+        const html = await this.fetchWithScrapeDo(url, true);
+        console.log(`✅ Render mode success: ${html.length} bytes`);
+        return html;
+      } catch (error: any) {
+        lastError = error;
+        console.error(`❌ Attempt ${attempt} failed: ${error.message}`);
+
+        if (attempt < maxRetries) {
+          const waitTime = attempt * 2000; // 2s, 4s, 6s
+          console.log(`⏳ Waiting ${waitTime / 1000}s before retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+
+    throw lastError;
   }
 
   async getProductLinks(categoryUrl: string): Promise<string[]> {
