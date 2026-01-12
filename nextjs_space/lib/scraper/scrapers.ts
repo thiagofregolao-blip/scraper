@@ -34,37 +34,55 @@ export class UniversalScraper {
       const baseUrl = new URL(categoryUrl).origin;
       const subcategories: { name: string; url: string }[] = [];
       const domain = new URL(categoryUrl).hostname;
+      const currentPath = new URL(categoryUrl).pathname;
 
       if (domain.includes('lgimportados.com')) {
-        // LG Importados: links de subcategoria estão em elementos com classe específica
-        $('.subcategory-link, .category-list a, .subcategories a, [class*="subcategor"] a, .sidebar-category a, .category-menu a').each((_, el) => {
-          const href = $(el).attr('href');
-          const name = $(el).text().trim();
+        // Extrai o nome base da categoria da URL (ex: "foto-e-filmagem" de "/categoria/foto-e-filmagem")
+        const categorySlug = currentPath.split('/').filter(p => p).pop() || '';
 
-          if (href && name && href.includes('/categoria/') && !subcategories.some(s => s.url === href)) {
+        console.log(`[Subcategorias] Categoria base: ${categorySlug}`);
+
+        // Busca TODOS os links que contêm a categoria atual no path
+        $('a').each((_, el) => {
+          const href = $(el).attr('href') || '';
+          const rawName = $(el).text().trim();
+
+          // Limpa o nome (remove números, espaços extras)
+          const name = rawName.replace(/\s+/g, ' ').replace(/^\d+\s*/, '').trim();
+
+          // Só pega links que:
+          // 1. Contêm /categoria/
+          // 2. Contêm o slug da categoria atual
+          // 3. São mais longos que a URL atual (são subcategorias)
+          // 4. Não são links de paginação
+          // 5. Têm nome válido
+          if (
+            href.includes('/categoria/') &&
+            href.includes(categorySlug) &&
+            href.length > currentPath.length + 3 &&
+            !href.includes('pagina') &&
+            !href.includes('?') &&
+            name.length > 2 &&
+            name.length < 60
+          ) {
             const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
-            subcategories.push({ name, url: fullUrl });
+
+            // Evita duplicatas
+            if (!subcategories.some(s => s.url === fullUrl || s.name === name)) {
+              subcategories.push({ name, url: fullUrl });
+              console.log(`[Subcategorias] Encontrada: "${name}" -> ${fullUrl}`);
+            }
           }
         });
 
-        // Se não encontrou com seletores específicos, busca links que parecem subcategorias
-        if (subcategories.length === 0) {
-          $('a').each((_, el) => {
-            const href = $(el).attr('href');
-            const name = $(el).text().trim();
+        // Remove a própria categoria se ela foi adicionada
+        const filteredSubcats = subcategories.filter(s =>
+          !s.url.endsWith(currentPath) &&
+          s.url !== categoryUrl
+        );
 
-            // Pega links que são subcategorias do caminho atual
-            if (href && name && name.length > 2 && name.length < 50) {
-              const currentPath = new URL(categoryUrl).pathname;
-              if (href.includes(currentPath) && href !== categoryUrl && href.length > currentPath.length + 5) {
-                const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
-                if (!subcategories.some(s => s.url === fullUrl) && !fullUrl.includes('pagina')) {
-                  subcategories.push({ name, url: fullUrl });
-                }
-              }
-            }
-          });
-        }
+        console.log(`[Subcategorias] Total após filtro: ${filteredSubcats.length}`);
+        return filteredSubcats;
       }
 
       console.log(`[Subcategorias] Encontradas ${subcategories.length} subcategorias`);
