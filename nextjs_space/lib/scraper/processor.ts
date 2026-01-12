@@ -440,56 +440,53 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
 
       // URL-only mode: Generate Excel and finish
       if (urlOnlyMode) {
-        console.log(`[${jobId}] Modo URL-only: buscando subcategorias...`);
+        console.log(`[${jobId}] Modo URL-only: extraindo subcategorias das URLs dos produtos...`);
 
-        // Tenta buscar subcategorias primeiro
-        const subcategories = await this.scraper.getSubcategories(job.url);
+        // Função para extrair subcategoria da URL do produto
+        const extractSubcategoryFromUrl = (productUrl: string): string => {
+          try {
+            const url = new URL(productUrl);
+            const pathParts = url.pathname.split('/').filter(p => p);
 
-        let allProductsWithSubcategory: { url: string; subcategory: string }[] = [];
-
-        if (subcategories.length > 0) {
-          console.log(`[${jobId}] Encontradas ${subcategories.length} subcategorias. Processando cada uma...`);
-
-          await this.prisma.scrapeJob.update({
-            where: { id: jobId },
-            data: {
-              currentProduct: `Processando ${subcategories.length} subcategorias...`
-            }
-          });
-
-          // Processa cada subcategoria
-          for (const [subIndex, subcat] of subcategories.entries()) {
-            console.log(`[${jobId}] Subcategoria ${subIndex + 1}/${subcategories.length}: ${subcat.name}`);
-
-            await this.prisma.scrapeJob.update({
-              where: { id: jobId },
-              data: {
-                currentProduct: `Subcategoria ${subIndex + 1}/${subcategories.length}: ${subcat.name}`
-              }
-            });
-
-            // Coleta produtos desta subcategoria
-            for await (const pageData of this.scraper.getProductLinksStreaming(subcat.url)) {
-              for (const productUrl of pageData.productLinks) {
-                allProductsWithSubcategory.push({
-                  url: productUrl,
-                  subcategory: subcat.name
-                });
+            // LG Importados: /categoria/CATEGORIA--SUBCATEGORIA/...
+            // ou /produto/... com categoria no path
+            for (const part of pathParts) {
+              if (part.includes('--')) {
+                // Extrai a parte após --
+                const subcatPart = part.split('--').slice(1).join('--');
+                // Converte slug para nome legível
+                return subcatPart
+                  .replace(/-/g, ' ')
+                  .replace(/\b\w/g, l => l.toUpperCase());
               }
             }
 
-            console.log(`[${jobId}] ${subcat.name}: ${allProductsWithSubcategory.filter(p => p.subcategory === subcat.name).length} produtos`);
+            // Se não encontrou com --, tenta pegar a categoria do path
+            for (const part of pathParts) {
+              if (part !== 'categoria' && part !== 'produto' && !part.includes('pagina')) {
+                return part
+                  .replace(/-/g, ' ')
+                  .replace(/\b\w/g, l => l.toUpperCase());
+              }
+            }
+
+            return categoryName || 'Sem categoria';
+          } catch {
+            return categoryName || 'Sem categoria';
           }
-        } else {
-          // Se não encontrou subcategorias, usa a categoria original
-          console.log(`[${jobId}] Nenhuma subcategoria encontrada. Usando categoria principal.`);
-          allProductsWithSubcategory = allProductLinks.map(url => ({
-            url,
-            subcategory: categoryName || 'Sem categoria'
-          }));
-        }
+        };
 
-        console.log(`[${jobId}] Gerando Excel com ${allProductsWithSubcategory.length} URLs...`);
+        // Processa todos os produtos e extrai subcategoria de cada URL
+        const allProductsWithSubcategory = allProductLinks.map(url => ({
+          url,
+          subcategory: extractSubcategoryFromUrl(url)
+        }));
+
+        // Conta quantas subcategorias diferentes existem
+        const uniqueSubcategories = [...new Set(allProductsWithSubcategory.map(p => p.subcategory))];
+        console.log(`[${jobId}] Subcategorias encontradas: ${uniqueSubcategories.join(', ')}`);
+
+        console.log(`[${jobId}] Gerando Excel com ${allProductsWithSubcategory.length} URLs em ${uniqueSubcategories.length} subcategorias...`);
 
         const productsData = allProductsWithSubcategory.map((item, index) => ({
           '#': index + 1,
@@ -509,7 +506,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
             progress: 100,
             excelData: excelBuffer,
             completedAt: new Date(),
-            currentProduct: `Excel gerado com ${allProductsWithSubcategory.length} URLs em ${subcategories.length || 1} subcategorias`
+            currentProduct: `Excel gerado com ${allProductsWithSubcategory.length} URLs em ${uniqueSubcategories.length} subcategorias`
           }
         });
 
