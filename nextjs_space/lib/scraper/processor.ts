@@ -442,44 +442,52 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
       if (urlOnlyMode) {
         console.log(`[${jobId}] Modo URL-only: extraindo subcategorias das URLs dos produtos...`);
 
-        // Função para extrair subcategoria da URL do produto
-        const extractSubcategoryFromUrl = (productUrl: string): string => {
+        // Função para inferir subcategoria baseado em palavras-chave do nome do produto
+        const inferSubcategoryFromProductUrl = (productUrl: string): string => {
           try {
             const url = new URL(productUrl);
-            const pathParts = url.pathname.split('/').filter(p => p);
+            const productSlug = url.pathname.toLowerCase();
 
-            // LG Importados: /categoria/CATEGORIA--SUBCATEGORIA/...
-            // ou /produto/... com categoria no path
-            for (const part of pathParts) {
-              if (part.includes('--')) {
-                // Extrai a parte após --
-                const subcatPart = part.split('--').slice(1).join('--');
-                // Converte slug para nome legível
-                return subcatPart
-                  .replace(/-/g, ' ')
-                  .replace(/\b\w/g, l => l.toUpperCase());
-              }
-            }
+            // Mapeamento de palavras-chave para subcategorias
+            // Foto e Filmagem
+            if (productSlug.includes('drone')) return 'Drones';
+            if (productSlug.includes('gopro') || productSlug.includes('go-pro') || productSlug.includes('action-cam')) return 'Câmeras de Ação';
+            if (productSlug.includes('instax') || productSlug.includes('polaroid') || productSlug.includes('instantanea')) return 'Câmera Instantânea';
+            if (productSlug.includes('estabilizador') || productSlug.includes('gimbal') || productSlug.includes('osmo')) return 'Estabilizadores';
+            if (productSlug.includes('camera') || productSlug.includes('camara') || productSlug.includes('filmadora')) return 'Câmeras';
+            if (productSlug.includes('lente') || productSlug.includes('tripe') || productSlug.includes('flash') || productSlug.includes('bateria')) return 'Acessórios Foto e Vídeo';
 
-            // Se não encontrou com --, tenta pegar a categoria do path
-            for (const part of pathParts) {
-              if (part !== 'categoria' && part !== 'produto' && !part.includes('pagina')) {
-                return part
-                  .replace(/-/g, ' ')
-                  .replace(/\b\w/g, l => l.toUpperCase());
-              }
-            }
+            // Eletrônicos
+            if (productSlug.includes('fone') || productSlug.includes('headphone') || productSlug.includes('earphone') || productSlug.includes('airpods')) return 'Fones de Ouvido';
+            if (productSlug.includes('smartwatch') || productSlug.includes('smart-watch') || productSlug.includes('apple-watch') || productSlug.includes('galaxy-watch')) return 'Smart Watch';
+            if (productSlug.includes('caixa-de-som') || productSlug.includes('speaker') || productSlug.includes('jbl') || productSlug.includes('boombox')) return 'Caixas de Som';
+            if (productSlug.includes('tv') || productSlug.includes('televisor') || productSlug.includes('smart-tv')) return 'TVs';
+            if (productSlug.includes('playstation') || productSlug.includes('xbox') || productSlug.includes('nintendo') || productSlug.includes('console')) return 'Consoles';
 
-            return categoryName || 'Sem categoria';
+            // Informática
+            if (productSlug.includes('notebook') || productSlug.includes('laptop') || productSlug.includes('macbook')) return 'Notebooks';
+            if (productSlug.includes('tablet') || productSlug.includes('ipad')) return 'Tablets';
+            if (productSlug.includes('monitor')) return 'Monitores';
+            if (productSlug.includes('teclado') || productSlug.includes('keyboard')) return 'Periféricos';
+            if (productSlug.includes('mouse')) return 'Periféricos';
+
+            // Celulares
+            if (productSlug.includes('iphone')) return 'iPhone';
+            if (productSlug.includes('samsung') || productSlug.includes('galaxy')) return 'Samsung';
+            if (productSlug.includes('xiaomi') || productSlug.includes('redmi') || productSlug.includes('poco')) return 'Xiaomi';
+            if (productSlug.includes('motorola') || productSlug.includes('moto-')) return 'Motorola';
+
+            // Fallback: usa a categoria principal
+            return categoryName || 'Outros';
           } catch {
-            return categoryName || 'Sem categoria';
+            return categoryName || 'Outros';
           }
         };
 
         // Processa todos os produtos e extrai subcategoria de cada URL
         const allProductsWithSubcategory = allProductLinks.map(url => ({
           url,
-          subcategory: extractSubcategoryFromUrl(url)
+          subcategory: inferSubcategoryFromProductUrl(url)
         }));
 
         // Conta quantas subcategorias diferentes existem
