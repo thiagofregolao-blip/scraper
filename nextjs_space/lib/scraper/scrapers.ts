@@ -22,6 +22,59 @@ export class UniversalScraper {
     console.log(`Scraper inicializado (usando Cheerio - sem navegador, limite: ${this.maxProducts} produtos)`);
   }
 
+  /**
+   * Extrai subcategorias de uma página de categoria principal
+   */
+  async getSubcategories(categoryUrl: string): Promise<{ name: string; url: string }[]> {
+    console.log(`[Subcategorias] Buscando subcategorias de: ${categoryUrl}`);
+
+    try {
+      const html = await this.fetchHTML(categoryUrl);
+      const $ = cheerio.load(html);
+      const baseUrl = new URL(categoryUrl).origin;
+      const subcategories: { name: string; url: string }[] = [];
+      const domain = new URL(categoryUrl).hostname;
+
+      if (domain.includes('lgimportados.com')) {
+        // LG Importados: links de subcategoria estão em elementos com classe específica
+        $('.subcategory-link, .category-list a, .subcategories a, [class*="subcategor"] a, .sidebar-category a, .category-menu a').each((_, el) => {
+          const href = $(el).attr('href');
+          const name = $(el).text().trim();
+
+          if (href && name && href.includes('/categoria/') && !subcategories.some(s => s.url === href)) {
+            const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
+            subcategories.push({ name, url: fullUrl });
+          }
+        });
+
+        // Se não encontrou com seletores específicos, busca links que parecem subcategorias
+        if (subcategories.length === 0) {
+          $('a').each((_, el) => {
+            const href = $(el).attr('href');
+            const name = $(el).text().trim();
+
+            // Pega links que são subcategorias do caminho atual
+            if (href && name && name.length > 2 && name.length < 50) {
+              const currentPath = new URL(categoryUrl).pathname;
+              if (href.includes(currentPath) && href !== categoryUrl && href.length > currentPath.length + 5) {
+                const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
+                if (!subcategories.some(s => s.url === fullUrl) && !fullUrl.includes('pagina')) {
+                  subcategories.push({ name, url: fullUrl });
+                }
+              }
+            }
+          });
+        }
+      }
+
+      console.log(`[Subcategorias] Encontradas ${subcategories.length} subcategorias`);
+      return subcategories;
+    } catch (error) {
+      console.error(`[Subcategorias] Erro ao buscar subcategorias:`, error);
+      return [];
+    }
+  }
+
   private async fetchHTML(url: string): Promise<string> {
     console.log(`Fetching: ${url}`);
 

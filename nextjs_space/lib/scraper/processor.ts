@@ -440,12 +440,62 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
 
       // URL-only mode: Generate Excel and finish
       if (urlOnlyMode) {
-        console.log(`[${jobId}] Modo URL-only: gerando Excel com ${allProductLinks.length} URLs...`);
+        console.log(`[${jobId}] Modo URL-only: buscando subcategorias...`);
 
-        const productsData = allProductLinks.map((url, index) => ({
+        // Tenta buscar subcategorias primeiro
+        const subcategories = await this.scraper.getSubcategories(job.url);
+
+        let allProductsWithSubcategory: { url: string; subcategory: string }[] = [];
+
+        if (subcategories.length > 0) {
+          console.log(`[${jobId}] Encontradas ${subcategories.length} subcategorias. Processando cada uma...`);
+
+          await this.prisma.scrapeJob.update({
+            where: { id: jobId },
+            data: {
+              currentProduct: `Processando ${subcategories.length} subcategorias...`
+            }
+          });
+
+          // Processa cada subcategoria
+          for (const [subIndex, subcat] of subcategories.entries()) {
+            console.log(`[${jobId}] Subcategoria ${subIndex + 1}/${subcategories.length}: ${subcat.name}`);
+
+            await this.prisma.scrapeJob.update({
+              where: { id: jobId },
+              data: {
+                currentProduct: `Subcategoria ${subIndex + 1}/${subcategories.length}: ${subcat.name}`
+              }
+            });
+
+            // Coleta produtos desta subcategoria
+            for await (const pageData of this.scraper.getProductLinksStreaming(subcat.url)) {
+              for (const productUrl of pageData.productLinks) {
+                allProductsWithSubcategory.push({
+                  url: productUrl,
+                  subcategory: subcat.name
+                });
+              }
+            }
+
+            console.log(`[${jobId}] ${subcat.name}: ${allProductsWithSubcategory.filter(p => p.subcategory === subcat.name).length} produtos`);
+          }
+        } else {
+          // Se não encontrou subcategorias, usa a categoria original
+          console.log(`[${jobId}] Nenhuma subcategoria encontrada. Usando categoria principal.`);
+          allProductsWithSubcategory = allProductLinks.map(url => ({
+            url,
+            subcategory: categoryName || 'Sem categoria'
+          }));
+        }
+
+        console.log(`[${jobId}] Gerando Excel com ${allProductsWithSubcategory.length} URLs...`);
+
+        const productsData = allProductsWithSubcategory.map((item, index) => ({
           '#': index + 1,
-          'URL do Produto': url,
-          'Categoria': categoryName || 'Sem categoria'
+          'URL do Produto': item.url,
+          'Subcategoria': item.subcategory,
+          'Categoria Principal': categoryName || 'Sem categoria'
         }));
 
         const excelBuffer = generateExcelBuffer(productsData, categoryName || 'Produtos');
@@ -454,12 +504,12 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
           where: { id: jobId },
           data: {
             status: 'completed',
-            totalProducts: allProductLinks.length,
-            processedProducts: allProductLinks.length,
+            totalProducts: allProductsWithSubcategory.length,
+            processedProducts: allProductsWithSubcategory.length,
             progress: 100,
             excelData: excelBuffer,
             completedAt: new Date(),
-            currentProduct: `Excel gerado com ${allProductLinks.length} URLs`
+            currentProduct: `Excel gerado com ${allProductsWithSubcategory.length} URLs em ${subcategories.length || 1} subcategorias`
           }
         });
 
