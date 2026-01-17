@@ -122,18 +122,34 @@ export class UniversalScraper {
     }
   }
 
+  private getChromiumPath(): string | undefined {
+    try {
+      // Tenta encontrar o chromium no PATH
+      const { execSync } = require('child_process');
+      const path = execSync('which chromium').toString().trim();
+      return path;
+    } catch (e) {
+      try {
+        const { execSync } = require('child_process');
+        const path = execSync('which chromium-browser').toString().trim();
+        return path;
+      } catch (e2) {
+        return undefined;
+      }
+    }
+  }
+
   private async fetchWithPuppeteer(url: string): Promise<string> {
     console.log(`🚀 Launching local Puppeteer for: ${url}`);
     let browser = null;
 
     try {
-      // Tenta usar a variável de ambiente ou assume 'chromium' (no PATH do Linux)
-      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || 'chromium';
-      console.log(`Using executable path: ${executablePath}`);
+      const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || this.getChromiumPath();
+      console.log(`Using executable path: ${execPath || 'bundled (not found in path)'}`);
 
       browser = await puppeteer.launch({
         headless: true,
-        executablePath: executablePath,
+        executablePath: execPath,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
