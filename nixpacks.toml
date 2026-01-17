@@ -9,5 +9,5 @@ cmds = ["cd nextjs_space && npm install"]
 [phases.build]
 cmds = ["cd nextjs_space && npm install && npx prisma generate && npm run build"]
 
-[phases.start]
-cmds = ["cd nextjs_space && npx prisma db push && npm run start"]
+[start]
+cmd = "cd nextjs_space && npx prisma db push && npm run start"
