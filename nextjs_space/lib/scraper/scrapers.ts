@@ -150,6 +150,7 @@ export class UniversalScraper {
       browser = await puppeteer.launch({
         headless: true,
         executablePath: execPath,
+        ignoreHTTPSErrors: true,
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -158,7 +159,12 @@ export class UniversalScraper {
           '--no-first-run',
           '--no-zygote',
           '--single-process',
-          '--disable-gpu'
+          '--disable-gpu',
+          '--disable-extensions',
+          '--disable-software-rasterizer',
+          '--mute-audio',
+          '--disable-gl-drawing-for-tests',
+          '--window-size=1366,768'
         ]
       });
 
