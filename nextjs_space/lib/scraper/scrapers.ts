@@ -178,13 +178,13 @@ export class UniversalScraper {
 
       console.log('Navigating...');
       await page.goto(url, {
-        waitUntil: 'networkidle2',
-        timeout: 60000
+        waitUntil: 'domcontentloaded', // Muito mais rápido que networkidle2
+        timeout: 120000 // 2 minutos de timeout
       });
 
-      // Tenta esperar pelo conteúdo principal carregar
+      // Tenta esperar pelo seletor de corpo
       try {
-        await page.waitForSelector('body', { timeout: 10000 });
+        await page.waitForSelector('body', { timeout: 30000 });
       } catch (e) {
         console.log('Timeout waiting for body, proceeding anyway...');
       }
