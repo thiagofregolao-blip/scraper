@@ -1,7 +1,6 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { extractDomain, isValidUrl } from './utils';
-import puppeteer from 'puppeteer';
 
 export interface ProductInfo {
   name: string;
@@ -97,109 +96,53 @@ export class UniversalScraper {
     console.log(`Fetching: ${url}`);
 
     try {
-      // Primeiro tenta com Axios (método rápido)
+      // Primeiro tenta com Axios (método rápido local)
       const response = await axios.get(url, {
         headers: {
           'User-Agent': this.userAgent,
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7,es;q=0.6',
         },
-        timeout: 15000, // Timeout menor para Axios
+        timeout: 15000,
       });
 
       const html = response.data;
 
       // Detecta Cloudflare protection
       if (html.includes('Just a moment') || html.includes('cf-chl-opt') || html.includes('challenge-platform')) {
-        console.log('⚠️ Cloudflare detected, switching to Puppeteer...');
-        return await this.fetchWithPuppeteer(url);
+        console.log('⚠️ Cloudflare detected (local), switching to Scrape.do...');
+        return await this.fetchWithScrapeDo(url, false);
       }
 
       return html;
     } catch (error) {
-      console.log(`Axios failed, trying Puppeteer...`);
-      return await this.fetchWithPuppeteer(url);
+      console.log(`Axios local failed, trying Scrape.do...`);
+      return await this.fetchWithScrapeDo(url, true);
     }
   }
 
-  private getChromiumPath(): string | undefined {
-    try {
-      // Tenta encontrar o chromium no PATH
-      const { execSync } = require('child_process');
-      const path = execSync('which chromium').toString().trim();
-      return path;
-    } catch (e) {
-      try {
-        const { execSync } = require('child_process');
-        const path = execSync('which chromium-browser').toString().trim();
-        return path;
-      } catch (e2) {
-        return undefined;
-      }
-    }
-  }
+  private async fetchWithScrapeDo(url: string, useRender: boolean = false): Promise<string> {
+    const SCRAPE_DO_TOKEN = process.env.SCRAPE_DO_TOKEN || 'b36342f58b4448f58e8a81f14a3841f2968c9d9a36a';
+    const encodedUrl = encodeURIComponent(url);
+    const renderParam = useRender ? '&render=true' : '';
+    const apiUrl = `https://api.scrape.do?token=${SCRAPE_DO_TOKEN}&url=${encodedUrl}${renderParam}`;
 
-  private async fetchWithPuppeteer(url: string): Promise<string> {
-    console.log(`🚀 Launching local Puppeteer for: ${url}`);
-    let browser = null;
+    console.log(`🚀 Scrape.do requesting: ${url} (Render: ${useRender})`);
 
     try {
-      const execPath = process.env.PUPPETEER_EXECUTABLE_PATH || this.getChromiumPath();
-      console.log(`Using executable path: ${execPath || 'bundled (not found in path)'}`);
-
-      browser = await puppeteer.launch({
-        headless: true,
-        executablePath: execPath,
-        pipe: true, // Usa pipes em vez de WebSocket (mais estável)
-        timeout: 60000, // Timeout de inicialização maior
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--disable-gpu',
-          '--disable-extensions',
-          '--disable-software-rasterizer',
-          '--mute-audio',
-          '--disable-gl-drawing-for-tests',
-          '--window-size=1366,768',
-          '--ignore-certificate-errors',
-          '--disable-features=IsolateOrigins,site-per-process', // Economiza muita RAM
-          '--disable-web-security'
-        ]
+      const response = await axios.get(apiUrl, {
+        timeout: useRender ? 120000 : 60000, // Timeout generous for Scrape.do
       });
-
-      const page = await browser.newPage();
-
-      // Configura viewport e user agent
-      await page.setViewport({ width: 1366, height: 768 });
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-      console.log('Navigating...');
-      await page.goto(url, {
-        waitUntil: 'domcontentloaded', // Muito mais rápido que networkidle2
-        timeout: 120000 // 2 minutos de timeout
-      });
-
-      // Tenta esperar pelo seletor de corpo
-      try {
-        await page.waitForSelector('body', { timeout: 30000 });
-      } catch (e) {
-        console.log('Timeout waiting for body, proceeding anyway...');
-      }
-
-      const html = await page.content();
-      console.log(`✅ Puppeteer success: ${html.length} bytes`);
-      return html;
-
+      console.log(`✅ Scrape.do success!`);
+      return response.data;
     } catch (error: any) {
-      console.error(`❌ Puppeteer failed: ${error.message}`);
-      throw error;
-    } finally {
-      if (browser) {
-        await browser.close();
+      console.error(`❌ Scrape.do failed: ${error.message}`);
+      // Se falhar no modo fast, tenta render (apenas uma vez)
+      if (!useRender) {
+        console.log('Retrying with render mode...');
+        return this.fetchWithScrapeDo(url, true);
       }
+      throw error;
     }
   }
 
