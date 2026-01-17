@@ -1,7 +1,7 @@
 providers = ["node"]
 
 [phases.setup]
-nixPkgs = ["nodejs_20"]
+nixPkgs = ["nodejs_20", "chromium", "glib", "nss", "freetype", "harfbuzz", "ca-certificates", "ttf-freefont"]
 
 [phases.install]
 cmds = ["cd nextjs_space && npm install"]
@@ -11,3 +11,7 @@ cmds = ["cd nextjs_space && npx prisma generate", "cd nextjs_space && npm run bu
 
 [start]
 cmd = "cd nextjs_space && npx prisma db push && npm run start"
+
+[variables]
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
+PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"

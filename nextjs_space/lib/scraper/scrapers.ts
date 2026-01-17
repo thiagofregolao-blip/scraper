@@ -104,7 +104,7 @@ export class UniversalScraper {
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7,es;q=0.6',
         },
-        timeout: 30000,
+        timeout: 15000, // Timeout menor para Axios
       });
 
       const html = response.data;
@@ -117,67 +117,65 @@ export class UniversalScraper {
 
       return html;
     } catch (error) {
-      console.error(`Axios failed, trying Puppeteer: ${error}`);
+      console.log(`Axios failed, trying Puppeteer...`);
       return await this.fetchWithPuppeteer(url);
     }
   }
 
-  private async fetchWithScrapeDo(url: string, useRender: boolean = false): Promise<string> {
-    const SCRAPE_DO_TOKEN = process.env.SCRAPE_DO_TOKEN || 'b36342f58b4448f58e8a81f14a3841f2968c9d9a36a';
-    const encodedUrl = encodeURIComponent(url);
-    const renderParam = useRender ? '&render=true' : '';
-    const apiUrl = `https://api.scrape.do?token=${SCRAPE_DO_TOKEN}&url=${encodedUrl}${renderParam}`;
-
-    const response = await axios.get(apiUrl, {
-      timeout: useRender ? 120000 : 60000,
-      headers: {
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      }
-    });
-
-    return response.data;
-  }
-
   private async fetchWithPuppeteer(url: string): Promise<string> {
-    const maxRetries = 3;
-    let lastError: any;
+    console.log(`🚀 Launching local Puppeteer for: ${url}`);
+    let browser = null;
 
-    // Estratégia 1: Tenta SEM render (rápido ~2-5s)
-    console.log(`🚀 Scrape.do (fast mode): ${url}`);
     try {
-      const html = await this.fetchWithScrapeDo(url, false);
+      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
+      console.log(`Using executable path: ${executablePath || 'bundled'}`);
 
-      // Verifica se pegou Cloudflare mesmo assim
-      if (html.includes('Just a moment') || html.includes('cf-chl-opt')) {
-        console.log('⚠️ Cloudflare ainda presente, tentando com render...');
-      } else {
-        console.log(`✅ Fast mode success: ${html.length} bytes`);
-        return html;
-      }
-    } catch (error: any) {
-      console.log(`⏩ Fast mode failed, trying render mode...`);
-    }
+      browser = await puppeteer.launch({
+        headless: true,
+        executablePath: executablePath,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-gpu'
+        ]
+      });
 
-    // Estratégia 2: Tenta COM render (lento ~10-20s) com retry
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      console.log(`🌐 Scrape.do (render mode) attempt ${attempt}/${maxRetries}: ${url}`);
+      const page = await browser.newPage();
+
+      // Configura viewport e user agent
+      await page.setViewport({ width: 1366, height: 768 });
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+      console.log('Navigating...');
+      await page.goto(url, {
+        waitUntil: 'networkidle2',
+        timeout: 60000
+      });
+
+      // Tenta esperar pelo conteúdo principal carregar
       try {
-        const html = await this.fetchWithScrapeDo(url, true);
-        console.log(`✅ Render mode success: ${html.length} bytes`);
-        return html;
-      } catch (error: any) {
-        lastError = error;
-        console.error(`❌ Attempt ${attempt} failed: ${error.message}`);
+        await page.waitForSelector('body', { timeout: 10000 });
+      } catch (e) {
+        console.log('Timeout waiting for body, proceeding anyway...');
+      }
 
-        if (attempt < maxRetries) {
-          const waitTime = attempt * 2000; // 2s, 4s, 6s
-          console.log(`⏳ Waiting ${waitTime / 1000}s before retry...`);
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-        }
+      const html = await page.content();
+      console.log(`✅ Puppeteer success: ${html.length} bytes`);
+      return html;
+
+    } catch (error: any) {
+      console.error(`❌ Puppeteer failed: ${error.message}`);
+      throw error;
+    } finally {
+      if (browser) {
+        await browser.close();
       }
     }
-
-    throw lastError;
   }
 
   async getProductLinks(categoryUrl: string): Promise<string[]> {
