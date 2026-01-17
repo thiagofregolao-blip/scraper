@@ -14,4 +14,3 @@ cmd = "cd nextjs_space && npx prisma db push && npm run start"
 
 [variables]
 PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
-PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"

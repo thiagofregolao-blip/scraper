@@ -127,8 +127,9 @@ export class UniversalScraper {
     let browser = null;
 
     try {
-      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || undefined;
-      console.log(`Using executable path: ${executablePath || 'bundled'}`);
+      // Tenta usar a variável de ambiente ou assume 'chromium' (no PATH do Linux)
+      const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || 'chromium';
+      console.log(`Using executable path: ${executablePath}`);
 
       browser = await puppeteer.launch({
         headless: true,
