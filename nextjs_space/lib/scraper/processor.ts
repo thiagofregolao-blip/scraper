@@ -212,7 +212,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
 
       let processedCount = isResume ? job.processedProducts : 0;
       let totalDiscovered = 0;
-      const allProductLinks: string[] = [];
+      const allProductLinks: { url: string; price: string }[] = [];
 
       // Process products page by page using streaming
       for await (const pageData of this.scraper.getProductLinksStreaming(job.url)) {
@@ -255,8 +255,9 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         }
 
         // Process each product from current page
-        for (const [localIndex, productUrl] of pageProducts.entries()) {
-          const globalIndex = allProductLinks.indexOf(productUrl);
+        for (const [localIndex, product] of pageProducts.entries()) {
+          const globalIndex = allProductLinks.findIndex(p => p.url === product.url);
+          const productUrl = product.url;
 
           try {
             // Skip products before startIndex when resuming
@@ -484,10 +485,17 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
           }
         };
 
-        // Processa todos os produtos e extrai subcategoria de cada URL
-        const allProductsWithSubcategory = allProductLinks.map(url => ({
-          url,
-          subcategory: inferSubcategoryFromProductUrl(url)
+        // Filtra produtos SEM preço
+        const productsWithPrice = allProductLinks.filter(p => p.price && p.price.trim() !== '');
+        const productsWithoutPrice = allProductLinks.length - productsWithPrice.length;
+
+        console.log(`[${jobId}] Produtos com preço: ${productsWithPrice.length}, sem preço: ${productsWithoutPrice} (ignorados)`);
+
+        // Processa todos os produtos com preço e extrai subcategoria de cada URL
+        const allProductsWithSubcategory = productsWithPrice.map(product => ({
+          url: product.url,
+          price: product.price,
+          subcategory: inferSubcategoryFromProductUrl(product.url)
         }));
 
         // Conta quantas subcategorias diferentes existem
@@ -499,6 +507,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
         const productsData = allProductsWithSubcategory.map((item, index) => ({
           '#': index + 1,
           'URL do Produto': item.url,
+          'Preço': item.price,
           'Subcategoria': item.subcategory,
           'Categoria Principal': categoryName || 'Sem categoria'
         }));
@@ -514,7 +523,7 @@ Responda APENAS com a descrição do produto, sem títulos ou formatação adici
             progress: 100,
             excelData: excelBuffer,
             completedAt: new Date(),
-            currentProduct: `Excel gerado com ${allProductsWithSubcategory.length} URLs em ${uniqueSubcategories.length} subcategorias`
+            currentProduct: `Excel gerado com ${allProductsWithSubcategory.length} URLs (${productsWithoutPrice} ignorados sem preço) em ${uniqueSubcategories.length} subcategorias`
           }
         });
 

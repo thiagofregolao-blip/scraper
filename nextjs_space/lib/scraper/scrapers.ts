@@ -506,10 +506,11 @@ export class UniversalScraper {
   /**
    * Processa produtos página por página em streaming
    * Retorna um async generator que descobre e processa produtos simultaneamente
+   * Agora inclui preço extraído do card de listagem
    */
   async *getProductLinksStreaming(categoryUrl: string): AsyncGenerator<{
     pageNumber: number;
-    productLinks: string[];
+    productLinks: { url: string; price: string }[];
     hasNextPage: boolean;
     totalDiscovered: number;
   }> {
@@ -528,7 +529,17 @@ export class UniversalScraper {
         const $ = cheerio.load(html);
         const baseUrl = new URL(categoryUrl).origin;
         const pageProductsCountBefore = allProductLinks.size;
-        const currentPageProducts: string[] = [];
+        const currentPageProducts: { url: string; price: string }[] = [];
+
+        // Função helper para extrair preço do elemento pai do produto
+        const extractPriceFromCard = (el: any): string => {
+          const $card = $(el).closest('[class*="product"], .product-card, .product-item, .card');
+          const priceText = $card.find('[class*="price"], [class*="precio"], .valor, .amount').first().text().trim();
+
+          // Tenta encontrar padrão de preço
+          const priceMatch = priceText.match(/Gs\.?\s*[\d.,]+|U?\$\s*[\d.,]+|\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?/);
+          return priceMatch ? priceMatch[0] : '';
+        };
 
         // SHOPPING CHINA específico
         if (domain.includes('shoppingchina.com.py')) {
@@ -538,20 +549,32 @@ export class UniversalScraper {
               const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
               if (!allProductLinks.has(fullUrl)) {
                 allProductLinks.add(fullUrl);
-                currentPageProducts.push(fullUrl);
+                const price = extractPriceFromCard(el);
+                currentPageProducts.push({ url: fullUrl, price });
               }
             }
           });
         }
         // LG IMPORTADOS específico
         else if (domain.includes('lgimportados.com')) {
-          $('.product-card a, .product-link, [class*="product"] a').each((_, el) => {
-            const href = $(el).attr('href');
+          $('.product-card, [class*="product-item"], [class*="product"]').each((_, cardEl) => {
+            const $card = $(cardEl);
+            const href = $card.find('a[href*="produto"]').first().attr('href');
             if (href && (href.includes('produto/') || href.includes('/produto/'))) {
               const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
               if (!allProductLinks.has(fullUrl)) {
                 allProductLinks.add(fullUrl);
-                currentPageProducts.push(fullUrl);
+
+                // Extrair preço do card
+                let price = '';
+                const priceEl = $card.find('[class*="price"], [class*="precio"], .valor, .preco').first();
+                const priceText = priceEl.text().trim() || $card.text();
+                const priceMatch = priceText.match(/Gs\.?\s*[\d.,]+/);
+                if (priceMatch) {
+                  price = priceMatch[0];
+                }
+
+                currentPageProducts.push({ url: fullUrl, price });
               }
             }
           });
@@ -564,7 +587,8 @@ export class UniversalScraper {
               const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
               if (!allProductLinks.has(fullUrl)) {
                 allProductLinks.add(fullUrl);
-                currentPageProducts.push(fullUrl);
+                const price = extractPriceFromCard(el);
+                currentPageProducts.push({ url: fullUrl, price });
               }
             }
           });
@@ -595,7 +619,8 @@ export class UniversalScraper {
                 const fullUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
                 if (isValidUrl(fullUrl) && fullUrl.includes(domain) && !allProductLinks.has(fullUrl)) {
                   allProductLinks.add(fullUrl);
-                  currentPageProducts.push(fullUrl);
+                  const price = extractPriceFromCard(el);
+                  currentPageProducts.push({ url: fullUrl, price });
                 }
               }
             }
