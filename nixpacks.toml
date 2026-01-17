@@ -1,7 +1,7 @@
 providers = ["node"]
 
 [phases.setup]
-nixPkgs = ["nodejs_20", "chromium", "glib", "nss", "freetype", "harfbuzz", "cacert", "ttf-freefont"]
+nixPkgs = ["nodejs_20", "chromium"]
 
 [phases.install]
 cmds = ["cd nextjs_space && npm install"]
