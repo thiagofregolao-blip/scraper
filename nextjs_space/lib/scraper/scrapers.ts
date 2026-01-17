@@ -150,6 +150,8 @@ export class UniversalScraper {
       browser = await puppeteer.launch({
         headless: true,
         executablePath: execPath,
+        pipe: true, // Usa pipes em vez de WebSocket (mais estável)
+        timeout: 60000, // Timeout de inicialização maior
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
@@ -164,7 +166,9 @@ export class UniversalScraper {
           '--mute-audio',
           '--disable-gl-drawing-for-tests',
           '--window-size=1366,768',
-          '--ignore-certificate-errors'
+          '--ignore-certificate-errors',
+          '--disable-features=IsolateOrigins,site-per-process', // Economiza muita RAM
+          '--disable-web-security'
         ]
       });
 
