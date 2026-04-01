@@ -14,6 +14,93 @@ export class UniversalScraper {
   private userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   private maxProducts: number = 10000; // Limite máximo de produtos
 
+  /**
+   * Verifica se é um site mapy.com.py e extrai o slug da categoria da URL
+   */
+  private isMapySite(url: string): boolean {
+    return new URL(url).hostname.includes('mapy.com.py');
+  }
+
+  private getMapyCategorySlug(url: string): string {
+    // Ex: /categoria-produto/bebidas/ -> bebidas
+    const match = url.match(/\/categoria-produto\/([^/]+)/);
+    return match ? match[1] : '';
+  }
+
+  /**
+   * Busca o ID da categoria no WooCommerce Store API do Mapy
+   */
+  private async getMapyCategoryId(baseUrl: string, slug: string): Promise<number | null> {
+    try {
+      const apiUrl = `${baseUrl}/wp-json/wc/store/v1/products/categories?per_page=100`;
+      const response = await axios.get(apiUrl, {
+        headers: { 'User-Agent': this.userAgent },
+        timeout: 15000,
+      });
+      const categories = response.data;
+      const cat = categories.find((c: any) => c.slug === slug);
+      if (cat) {
+        console.log(`[Mapy] Categoria "${slug}" encontrada com ID: ${cat.id} (${cat.count} produtos)`);
+        return cat.id;
+      }
+      console.log(`[Mapy] Categoria "${slug}" não encontrada na API`);
+      return null;
+    } catch (error) {
+      console.error(`[Mapy] Erro ao buscar categorias:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Busca produtos via WooCommerce Store API do Mapy (muito mais confiável que scraping HTML)
+   */
+  private async fetchMapyProductsFromAPI(
+    baseUrl: string,
+    categoryId: number,
+    page: number = 1,
+    perPage: number = 20
+  ): Promise<{ products: { url: string; price: string; name: string; images: string[] }[]; hasMore: boolean }> {
+    const apiUrl = `${baseUrl}/wp-json/wc/store/v1/products?category=${categoryId}&per_page=${perPage}&page=${page}`;
+    console.log(`[Mapy API] Página ${page}: ${apiUrl}`);
+
+    try {
+      const response = await axios.get(apiUrl, {
+        headers: { 'User-Agent': this.userAgent },
+        timeout: 15000,
+      });
+
+      const items = response.data;
+      if (!Array.isArray(items) || items.length === 0) {
+        return { products: [], hasMore: false };
+      }
+
+      const products = items.map((item: any) => {
+        const prices = item.prices || {};
+        const priceRaw = prices.price || prices.sale_price || prices.regular_price || '';
+        // WC Store API retorna preço em centavos (ex: "299200000" para Gs. 2.992.000)
+        const priceNum = parseInt(priceRaw, 10);
+        const priceFormatted = priceNum > 0
+          ? `Gs. ${Math.round(priceNum / 100).toLocaleString('es-PY')}`
+          : '';
+
+        const images = (item.images || []).map((img: any) => img.src).filter(Boolean);
+
+        return {
+          url: item.permalink || `${baseUrl}/produto/${item.slug}/`,
+          price: priceFormatted,
+          name: item.name || '',
+          images,
+        };
+      });
+
+      console.log(`[Mapy API] ${products.length} produtos encontrados na página ${page}`);
+      return { products, hasMore: items.length >= perPage };
+    } catch (error: any) {
+      console.error(`[Mapy API] Erro na página ${page}: ${error.message}`);
+      return { products: [], hasMore: false };
+    }
+  }
+
   async initialize(maxProducts?: number): Promise<void> {
     if (maxProducts) {
       this.maxProducts = maxProducts;
@@ -35,7 +122,36 @@ export class UniversalScraper {
       const domain = new URL(categoryUrl).hostname;
       const currentPath = new URL(categoryUrl).pathname;
 
-      if (domain.includes('lgimportados.com')) {
+      if (domain.includes('mapy.com.py')) {
+        // Mapy: buscar subcategorias via WooCommerce Store API
+        try {
+          const slug = this.getMapyCategorySlug(categoryUrl);
+          const categoryId = await this.getMapyCategoryId(baseUrl, slug);
+          if (categoryId) {
+            const apiUrl = `${baseUrl}/wp-json/wc/store/v1/products/categories?parent=${categoryId}&per_page=100`;
+            const response = await axios.get(apiUrl, {
+              headers: { 'User-Agent': this.userAgent },
+              timeout: 15000,
+            });
+            const cats = response.data;
+            if (Array.isArray(cats)) {
+              for (const cat of cats) {
+                if (cat.slug && cat.name) {
+                  subcategories.push({
+                    name: cat.name,
+                    url: `${baseUrl}/categoria-produto/${cat.slug}/`,
+                  });
+                  console.log(`[Mapy Subcategorias] Encontrada: "${cat.name}" -> ${baseUrl}/categoria-produto/${cat.slug}/`);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`[Mapy Subcategorias] Erro:`, error);
+        }
+        console.log(`[Subcategorias] Encontradas ${subcategories.length} subcategorias`);
+        return subcategories;
+      } else if (domain.includes('lgimportados.com')) {
         // Extrai o nome base da categoria da URL (ex: "foto-e-filmagem" de "/categoria/foto-e-filmagem")
         const categorySlug = currentPath.split('/').filter(p => p).pop() || '';
 
@@ -148,6 +264,34 @@ export class UniversalScraper {
 
   async getProductLinks(categoryUrl: string): Promise<string[]> {
     console.log(`Extraindo links de produtos de: ${categoryUrl}`);
+
+    // MAPY.COM.PY - usar WooCommerce Store API (produtos são renderizados via JS)
+    if (this.isMapySite(categoryUrl)) {
+      const baseUrl = new URL(categoryUrl).origin;
+      const slug = this.getMapyCategorySlug(categoryUrl);
+      console.log(`[Mapy] Detectado site Mapy - usando API WooCommerce (categoria: ${slug})`);
+
+      const categoryId = await this.getMapyCategoryId(baseUrl, slug);
+      if (!categoryId) {
+        console.log('[Mapy] Não foi possível encontrar a categoria, tentando scraping genérico...');
+      } else {
+        const allLinks: string[] = [];
+        let page = 1;
+        let hasMore = true;
+
+        while (hasMore && allLinks.length < this.maxProducts) {
+          const result = await this.fetchMapyProductsFromAPI(baseUrl, categoryId, page);
+          allLinks.push(...result.products.map(p => p.url));
+          hasMore = result.hasMore;
+          page++;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        console.log(`[Mapy] Total de produtos encontrados via API: ${allLinks.length}`);
+        return allLinks;
+      }
+    }
+
     const allProductLinks = new Set<string>(); // Usar Set para evitar duplicatas
     let currentUrl = categoryUrl;
     let pageNum = 1;
@@ -327,6 +471,12 @@ export class UniversalScraper {
   async scrapeProduct(url: string): Promise<ProductInfo | null> {
     try {
       console.log(`Extraindo produto: ${url}`);
+
+      // MAPY.COM.PY - usar WooCommerce Store API para buscar produto pelo slug
+      if (this.isMapySite(url)) {
+        return await this.scrapeMapyProduct(url);
+      }
+
       const html = await this.fetchHTML(url);
       const $ = cheerio.load(html);
 
@@ -481,6 +631,43 @@ export class UniversalScraper {
     totalDiscovered: number;
   }> {
     console.log(`[Streaming] Iniciando descoberta de: ${categoryUrl}`);
+
+    // MAPY.COM.PY - usar WooCommerce Store API
+    if (this.isMapySite(categoryUrl)) {
+      const baseUrl = new URL(categoryUrl).origin;
+      const slug = this.getMapyCategorySlug(categoryUrl);
+      console.log(`[Mapy Streaming] Detectado site Mapy - usando API WooCommerce (categoria: ${slug})`);
+
+      const categoryId = await this.getMapyCategoryId(baseUrl, slug);
+      if (categoryId) {
+        let page = 1;
+        let totalDiscovered = 0;
+        let hasMore = true;
+
+        while (hasMore && totalDiscovered < this.maxProducts) {
+          const result = await this.fetchMapyProductsFromAPI(baseUrl, categoryId, page);
+
+          if (result.products.length === 0) break;
+
+          totalDiscovered += result.products.length;
+          hasMore = result.hasMore;
+
+          yield {
+            pageNumber: page,
+            productLinks: result.products.map(p => ({ url: p.url, price: p.price })),
+            hasNextPage: hasMore,
+            totalDiscovered,
+          };
+
+          page++;
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        console.log(`[Mapy Streaming] Descoberta concluída: ${totalDiscovered} produtos encontrados`);
+        return;
+      }
+    }
+
     const allProductLinks = new Set<string>();
     let currentUrl = categoryUrl;
     let pageNum = 1;
@@ -567,6 +754,7 @@ export class UniversalScraper {
               const isProductLink =
                 href.includes('/producto/') ||
                 href.includes('/product/') ||
+                href.includes('/produto/') ||
                 (href.includes('/p/') && /\/p\/\d+/.test(href)) ||
                 (href.includes('/item/') && /\/item\/\d+/.test(href));
 
@@ -668,6 +856,63 @@ export class UniversalScraper {
     }
 
     console.log(`[Streaming] Descoberta concluída: ${allProductLinks.size} produtos encontrados`);
+  }
+
+  /**
+   * Extrai dados do produto Mapy via WooCommerce Store API usando o slug
+   */
+  private async scrapeMapyProduct(url: string): Promise<ProductInfo | null> {
+    try {
+      const baseUrl = new URL(url).origin;
+      // Extrair slug da URL: /produto/nome-do-produto/ -> nome-do-produto
+      const slugMatch = url.match(/\/produto\/([^/]+)/);
+      if (!slugMatch) {
+        console.log(`[Mapy] Não conseguiu extrair slug de: ${url}`);
+        return null;
+      }
+      const slug = slugMatch[1];
+
+      const apiUrl = `${baseUrl}/wp-json/wc/store/v1/products?slug=${slug}`;
+      console.log(`[Mapy] Buscando produto via API: ${slug}`);
+
+      const response = await axios.get(apiUrl, {
+        headers: { 'User-Agent': this.userAgent },
+        timeout: 15000,
+      });
+
+      const items = response.data;
+      if (!Array.isArray(items) || items.length === 0) {
+        console.log(`[Mapy] Produto não encontrado na API: ${slug}`);
+        return null;
+      }
+
+      const item = items[0];
+      const prices = item.prices || {};
+      const priceRaw = prices.price || prices.sale_price || prices.regular_price || '';
+      const priceNum = parseInt(priceRaw, 10);
+      const priceFormatted = priceNum > 0
+        ? `Gs. ${Math.round(priceNum / 100).toLocaleString('es-PY')}`
+        : '';
+
+      const images = (item.images || []).map((img: any) => img.src).filter(Boolean);
+
+      // Limpar descrição HTML
+      const descHtml = item.description || item.short_description || '';
+      const descText = descHtml.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+      console.log(`[Mapy] Produto extraído: ${item.name} (${images.length} imagens)`);
+
+      return {
+        name: item.name || '',
+        description: descText,
+        price: priceFormatted,
+        images,
+        url,
+      };
+    } catch (error: any) {
+      console.error(`[Mapy] Erro ao buscar produto: ${error.message}`);
+      return null;
+    }
   }
 
   async close(): Promise<void> {
